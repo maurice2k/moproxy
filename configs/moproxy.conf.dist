@@ -1,0 +1,118 @@
+{
+    "listen": [
+        // Defines where moproxy should listen and what external/outgoing
+        // IP address should be used. There is a short and a long form.
+
+        ///////////////////////////////////////////////////////////////////////
+        // THE FOLLOWING ARE SAMPLE LISTEN CONFIGS. REMOVE FOR PRODUCTION USE!!
+        ///////////////////////////////////////////////////////////////////////
+
+        // Listen for SOCKS5 on 192.168.1.15:1080 and also use 192.168.1.15 for
+        // outgoing connections:
+        "socks5 192.168.1.15:1080",
+
+        // Listen for HTTP on 192.168.1.16:8080 and use 172.10.1.20 for
+        // outgoing connections (long form with more explicit syntax):
+        {
+            "type": "http",
+            "internal": "192.168.1.16:8080",
+            "external": "172.10.1.20"
+        },
+
+        // Listen for SOCKS5 on 192.168.1.17:1080 and use 172.10.1.20 for
+        // outgoing connections (short form):
+        "socks5 192.168.1.16:1080 172.10.1.20",
+
+        // Listen for SOCKS5 on IPv6 address [fec0::aaaa:bbbb]:1080 (please note
+        // the brackets!) and use IPv4 172.10.1.22 for outgoing connections:
+        "socks5 [2001:0DB8::1234]:1080 172.10.1.22"
+    ],
+    "access": {
+        "authRules": [
+            // Authentication rules control which clients are required
+            // to do a username/password authentication. The rules are evaluated
+            // in sequence until a match is found ("first match wins").
+            //
+            // The format is as following:
+            // "auth with <auth-name> from <client> to <internal>"
+            //
+            // <auth-name> as defined in section "auth"
+            //             Use "none" for no authentication
+            // <client> is the client's IP address or IP address range or "all"
+            // <internal> is the internal proxy listening IP address or "all"
+
+            //////////////////////////////////////////////////////////////
+            // THE FOLLOWING ARE SAMPLE RULES. REMOVE FOR PRODUCTION USE!!
+            //////////////////////////////////////////////////////////////
+
+            // no authentication for all clients from 192.168.1.xxx to any
+            // configured proxy on port 1080
+            "auth with none from 192.168.1.0/24 to 0.0.0.0:1080",
+
+            // authenticate any other client for any proxy with "mySimpleAuth"
+            "auth with mySimpleAuth from all to all"
+        ],
+        "proxyRules": [
+            // The rules are evaluated in sequence until a match is found
+            // ("first match is best match"). That means, the first rule
+            // matched is the rule that will be used to allow or deny a
+            // particular connection. There is a short and a long form.
+            //
+            // The last (built-in) rule is deny from all to all.
+
+            //////////////////////////////////////////////////////////////
+            // THE FOLLOWING ARE SAMPLE RULES. REMOVE FOR PRODUCTION USE!!
+            //////////////////////////////////////////////////////////////
+
+            // Allow traffic from 192.168.2.137 to everywhere (IPv4 and IPv6)
+            // (in long form):
+            {
+                "type": "allow",
+                "from": "192.168.2.137",
+                "to": "all"
+            },
+
+            // ... but deny traffic from 192.168.2.0/24 to 172.10.1.100/16
+            // (in short form):
+            "deny from 192.168.2.0/24 to 172.10.1.100/16",
+            {
+                "type": "deny",
+                "from": "192.168.2.0/24",
+                "to": "172.10.0.0/16"
+            },
+
+            // Allow traffic from everywhere (IPv4 and IPv6) to 1.1.1.1
+            "allow from all to 1.1.1.1"
+        ]
+    },
+    "timeout": {
+        "tcp": {
+            // The number of seconds the server will wait for a connect
+            // initiated on behalf of the socks-client to complete. The
+            // default is 30 seconds.
+            // Setting it to 0 will use the systems default.
+            "connect": 30,
+
+            // The number of seconds an established connection can be idle.
+            // The default is 90 seconds.
+            // Set it to 0 for forever.
+            "idle": 90,
+
+            // The number of seconds a client can spend negotiating with the
+            // server for a socks session before the server will close the
+            // connection to the client. The default is 30 seconds.
+            // Set it to 0 for forever, though that is strongly discouraged.
+            "negotiate": 30,
+
+            // KeepAlive specifies the interval between keep-alive
+            // probes are sent for an active network connection. The default
+            // is 30 seconds.
+            // Set it to 0 to use Go's default (currently 15 seconds)
+            "keepAlive": 30
+        },
+        "http": {
+            // HTTP keep-alive timeout for plain HTTP proxy requests
+            "keepAlive": 300
+        }
+    }
+}
