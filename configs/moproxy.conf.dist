@@ -83,7 +83,16 @@
 
             // Allow traffic from everywhere (IPv4 and IPv6) to 1.1.1.1
             "allow from all to 1.1.1.1"
-        ]
+        ],
+        "auth": {
+            // Defines the authentication methods that can be used in
+            // "authRules"
+            "mySimpleAuth": {
+                "type": "static",
+                "username": "my-username",
+                "password": "this-is-not-secure",
+            }
+        }
     },
     "timeout": {
         "tcp": {
