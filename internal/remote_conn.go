@@ -62,26 +62,10 @@ func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPCon
 		network = "tcp6"
 	}
 
-	if externalAddr.IP.IsUnspecified() {
-		// In case the external IP is either 0.0.0.0 or [::] we're trying to set it to the listening IP address
-		// (or more specific: it is set to the concrete IP address the client connected to). That way, the traffic
-		// is leaving the server using the same IP address that was used when connecting to moproxy.
-
-		// This is useful if moproxy is running on a server with multiple IP addresses and is configured to listen on
-		// "0.0.0.0:1080" without a specific external IP.
-
-		externalAddr.IP = clientConn.GetServerAddr().IP
-	}
-
 	tcpTimeouts := config.GetTcpTimeouts()
 	remoteDialer := net.Dialer{
 		LocalAddr: externalAddr,
 	}
-
-	// update external addr in logger
-	clientConn.Log = clientConn.Log.With().
-		Str("external_addr", clientConn.GetExternalAddr().String()).
-		Logger()
 
 	if config.GetTuningConfig().TFOOutgoing {
 		remoteDialer.Control = applyRemoteConnSocketOptions(log)
@@ -114,6 +98,14 @@ func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPCon
 
 		return nil, &RemoteConnError{msg: fmt.Sprintf("Unable to connect to remote address '%s' with error: %s", remoteAddr, err), Type: errType, Err: err}
 	}
+
+	// update external addr in logger
+	clientConn.Log = clientConn.Log.With().
+		Str("external_addr", remoteConn.LocalAddr().String()).
+		Logger()
+
+	clientConn.Log.Debug().Msg("Connection established")
+
 
 	return remoteConn.(*net.TCPConn), nil
 }

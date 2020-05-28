@@ -72,13 +72,23 @@ func (c *ProxyConn) GetInternalAddr() *net.TCPAddr {
 
 // Returns the external socks5 address that is used for outgoing connections
 func (c *ProxyConn) GetExternalAddr() *net.TCPAddr {
-
 	if c.externalAddr == nil {
 		ctx := c.GetServer().GetContext()
 		extAddr := (*ctx).Value(CtxKey("externalAddr")).(*net.TCPAddr)
 
 		c.externalAddr = &net.TCPAddr{}
 		*c.externalAddr = *extAddr
+	}
+
+	if c.externalAddr.IP.IsUnspecified() {
+		// In case the external IP is either 0.0.0.0 or [::] we're trying to set it to the listening IP address
+		// (or more specific: it is set to the concrete IP address the client connected to). That way, the traffic
+		// is leaving the server using the same IP address that was used when connecting to moproxy.
+
+		// This is useful if moproxy is running on a server with multiple IP addresses and is configured to listen on
+		// "0.0.0.0:1080" without a specific external IP.
+
+		c.externalAddr.IP = c.GetServerAddr().IP
 	}
 
 	return c.externalAddr
