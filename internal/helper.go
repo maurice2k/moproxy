@@ -16,6 +16,7 @@ type CtxKey string
 
 type ProxyConn struct {
 	*tcpserver.Connection
+	externalAddr  *net.TCPAddr
 	Log           zerolog.Logger
 	read, written int64
 }
@@ -71,11 +72,17 @@ func (c *ProxyConn) GetInternalAddr() *net.TCPAddr {
 
 // Returns the external socks5 address that is used for outgoing connections
 func (c *ProxyConn) GetExternalAddr() *net.TCPAddr {
-	ctx := c.GetServer().GetContext()
-	return (*ctx).Value(CtxKey("externalAddr")).(*net.TCPAddr)
+
+	if c.externalAddr == nil {
+		ctx := c.GetServer().GetContext()
+		extAddr := (*ctx).Value(CtxKey("externalAddr")).(*net.TCPAddr)
+
+		c.externalAddr = &net.TCPAddr{}
+		*c.externalAddr = *extAddr
+	}
+
+	return c.externalAddr
 }
-
-
 
 // CountReader counts bytes read from io.Reader
 type CountReader struct {
@@ -103,8 +110,6 @@ func (cr *CountReader) GetCountAndReset() uint64 {
 	return atomic.SwapUint64(&cr.count, 0)
 }
 
-
-
 // CountWriter counts bytes written to io.Writer
 type CountWriter struct {
 	io.Writer
@@ -130,7 +135,6 @@ func (cw *CountWriter) GetCount() uint64 {
 func (cw *CountWriter) GetCountAndReset() uint64 {
 	return atomic.SwapUint64(&cw.count, 0)
 }
-
 
 // checks whether an error is a timeout "OpError"
 func IsTimeoutError(err error) bool {
