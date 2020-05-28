@@ -62,6 +62,10 @@ func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPCon
 		network = "tcp6"
 	}
 
+	remoteDialer := net.Dialer{
+		LocalAddr: externalAddr,
+	}
+
 	if externalAddr.IP.IsUnspecified() {
 		// In case the external IP is either 0.0.0.0 or [::] we're trying to set it to the listening IP address
 		// (or more specific: it is set to the concrete IP address the client connected to). That way, the traffic
@@ -70,13 +74,10 @@ func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPCon
 		// This is useful if moproxy is running on a server with multiple IP addresses and is configured to listen on
 		// "0.0.0.0:1080" without a specific external IP.
 
-		externalAddr.IP = clientConn.GetServerAddr().IP
+		remoteDialer.LocalAddr.(*net.TCPAddr).IP = clientConn.GetServerAddr().IP
 	}
 
 	tcpTimeouts := config.GetTcpTimeouts()
-	remoteDialer := net.Dialer{
-		LocalAddr: externalAddr,
-	}
 
 	if config.GetTuningConfig().TFOOutgoing {
 		remoteDialer.Control = applyRemoteConnSocketOptions(log)
