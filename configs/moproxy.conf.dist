@@ -53,16 +53,38 @@
             "auth with mySimpleAuth from all to all"
         ],
         "proxyRules": [
-            // The rules are evaluated in sequence until a match is found
-            // ("first match is best match"). That means, the first rule
-            // matched is the rule that will be used to allow or deny a
-            // particular connection. There is a short and a long form.
+            // Proxy rules control whether a client is allowed to connect
+            // to a given remote destination through a proxy defined under "listen".
             //
+            // The rules are evaluated in sequence until a match is found
+            // ("first match wins"). That means, the first rule
+            // matched is the rule that will be used to allow or deny a
+            // particular connection.
             // The last (built-in) rule is deny from all to all.
+            //
+            // The format is as following:
+            // "(allow|deny) from <client> [via <internal>|<auth-name>] to <remote>"
+            //
+            // <client> is the client's IP address or IP address range or "all"
+            // <remote> is the remotes's IP address or IP address range or "all"
+            //
+            // The optional "via" attribute restricts the rule to either an <internal>
+            // proxy listening IP address or to an <auth-name> authenticator.
+            //
+            // <internal> is the internal proxy listening IP address or "all"
+            // <auth-name> as defined in section "auth"
+            //             Use "none" for no authentication
 
             //////////////////////////////////////////////////////////////
             // THE FOLLOWING ARE SAMPLE RULES. REMOVE FOR PRODUCTION USE!!
             //////////////////////////////////////////////////////////////
+
+            // Deny traffic from any un-authenticated source
+            "deny from all via none to all"
+
+            // Allow traffic from anywhere to anywhere for any connection
+            // authenticated with authenticator "mySimpleAuth"
+            "allow from all via mySimpleAuth to all",
 
             // Allow traffic from 192.168.2.137 to everywhere (IPv4 and IPv6)
             // (in long form):
@@ -83,6 +105,7 @@
 
             // Allow traffic from everywhere (IPv4 and IPv6) to 1.1.1.1
             "allow from all to 1.1.1.1"
+
         ],
         "auth": {
             // Defines the authentication methods that can be used in

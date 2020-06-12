@@ -16,6 +16,7 @@ It uses *[tcpserver](https://github.com/maurice2k/tcpserver)* as a basis.
 * TCP FastOpen (TFO) support for remote connections with Linux Kernel 4.11+
 
 ## TODOs
+* ~~Add a "via" option in proxyRules that restricts rules to a given proxy or authentication~~
 * Cleanup HTTP non-CONNECT part (maybe remove usage of http.Request/http.Response)
 * Logging to SQLite
 * JSON status page

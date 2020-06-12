@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"moproxy/internal/proxyconn"
 	"moproxy/pkg/config"
 )
 
@@ -30,7 +31,7 @@ func (e *RemoteConnError) Error() string {
 	return e.msg
 }
 
-func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPConn, error) {
+func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.RemoteAddr) (*net.TCPConn, error) {
 	log := clientConn.Log
 	externalAddr := clientConn.GetExternalAddr()
 	isExternalAddrIPv6 := IsIPv6Addr(externalAddr)
@@ -76,7 +77,7 @@ func ConnectToRemote(clientConn *ProxyConn, remoteAddr *RemoteAddr) (*net.TCPCon
 		remoteDialer.Deadline = ts
 	}
 
-	if !config.IsProxyConnectionAllowed(clientConn.GetClientAddr().IP, remoteAddr.IP) {
+	if !config.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
 		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset"), Type: ERR_NOT_ALLOWED_BY_RULESET, Err: nil}
 	}
 

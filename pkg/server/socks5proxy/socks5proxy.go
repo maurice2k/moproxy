@@ -4,6 +4,7 @@ package socks5proxy
 
 import (
 	"moproxy/internal"
+	"moproxy/internal/proxyconn"
 	"moproxy/pkg/authenticator"
 	"moproxy/pkg/config"
 	"moproxy/pkg/server/stats"
@@ -60,11 +61,11 @@ const (
 type Request struct {
 	Command    byte
 	LocalAddr  *net.TCPAddr
-	RemoteAddr internal.RemoteAddr
+	RemoteAddr proxyconn.RemoteAddr
 }
 
 type socks5ClientConn struct {
-	*internal.ProxyConn
+	*proxyconn.ProxyConn
 	request       *Request
 	lastReplyCode byte
 }
@@ -249,7 +250,7 @@ func authenticate(conn *socks5ClientConn) bool {
 		return false
 	}
 
-	authRequired, authenticator, authName := config.IsClientAuthRequired(conn.GetClientAddr().IP, *conn.GetInternalAddr())
+	authRequired, authenticator, authName := config.IsClientAuthRequired(conn.ProxyConn)
 	if authRequired {
 		log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
 	}
@@ -271,7 +272,11 @@ func authenticate(conn *socks5ClientConn) bool {
 	conn.AddWritten(int64(n))
 
 	if authRequired && validAuthMethod == AUTH_USERNAME_PASSWORD {
-		return authenticateUsernamePassword(conn, authenticator)
+		authResult := authenticateUsernamePassword(conn, authenticator)
+		if authResult == true {
+			conn.SetSuccessfullyAuthenticated(authName)
+		}
+		return authResult
 	}
 
 	return validAuthMethod == AUTH_NO_AUTH
@@ -416,7 +421,7 @@ func readRequest(conn *socks5ClientConn) *Request {
 	request := &Request{
 		Command:   reqHeader[0],
 		LocalAddr: new(net.TCPAddr),
-		RemoteAddr: internal.RemoteAddr{
+		RemoteAddr: proxyconn.RemoteAddr{
 			TCPAddr: new(net.TCPAddr),
 		},
 	}
@@ -488,14 +493,14 @@ func readRequest(conn *socks5ClientConn) *Request {
 }
 
 func newSocks5Conn(conn *tcpserver.Connection) *socks5ClientConn {
-	return &socks5ClientConn{ProxyConn: internal.NewProxyConn(conn)}
+	return &socks5ClientConn{ProxyConn: proxyconn.NewProxyConn(conn)}
 }
 
 // TCP connection handler function
 func HandlerFunc(conn *tcpserver.Connection) {
 	s5Conn := newSocks5Conn(conn)
 
-	if !config.IsClientConnectionAllowed(s5Conn.GetClientAddr().IP) {
+	if !config.IsClientConnectionAllowed(s5Conn.ProxyConn) {
 		s5Conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
 		return
 	}
@@ -547,7 +552,7 @@ type Server struct {
 func NewServer(listenAddr string, externalIp string) *Server {
 	server, _ := tcpserver.NewServer(listenAddr)
 
-	ctx := context.WithValue(*server.GetContext(), internal.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
+	ctx := context.WithValue(*server.GetContext(), proxyconn.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
 	server.SetContext(&ctx)
 
 	s := &Server{server}
@@ -558,7 +563,7 @@ func NewServer(listenAddr string, externalIp string) *Server {
 // Returns external bind address from connection's context
 func getExternalBindAddr(conn *socks5ClientConn) *net.TCPAddr {
 	ctx := conn.GetServer().GetContext()
-	return (*ctx).Value(internal.CtxKey("externalAddr")).(*net.TCPAddr)
+	return (*ctx).Value(proxyconn.CtxKey("externalAddr")).(*net.TCPAddr)
 }
 
 // Creates a statistics event

@@ -12,6 +12,7 @@ func handleConnectCommand(conn *socks5ClientConn, request *Request) {
 	remoteTCPConn, err := internal.ConnectToRemote(conn.ProxyConn, &request.RemoteAddr)
 	if err != nil {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
+			conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
 			sendReply(conn, request, rcErr.Type)
 		} else {
 			// should not happen

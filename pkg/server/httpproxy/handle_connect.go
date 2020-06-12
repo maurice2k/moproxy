@@ -4,6 +4,7 @@ package httpproxy
 
 import (
 	"moproxy/internal"
+	"moproxy/internal/proxyconn"
 
 	"net"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 )
 
 func handleConnectMethod(conn *httpClientConn) {
-	remoteAddr := &internal.RemoteAddr{
+	remoteAddr := &proxyconn.RemoteAddr{
 		TCPAddr:    new(net.TCPAddr),
 	}
 
@@ -40,6 +41,7 @@ func handleConnectMethod(conn *httpClientConn) {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
 			switch rcErr.Type {
 			case internal.ERR_NOT_ALLOWED_BY_RULESET:
+				conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
 				sendReply(conn, http.StatusForbidden, "", err)
 			case internal.ERR_NET_UNREACHABLE:
 			case internal.ERR_HOST_UNREACHABLE:

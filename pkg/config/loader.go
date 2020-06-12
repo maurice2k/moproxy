@@ -3,6 +3,7 @@
 package config
 
 import (
+	"moproxy/internal/proxyconn"
 	"moproxy/pkg/authenticator"
 
 	"github.com/DisposaBoy/JsonConfigReader"
@@ -43,6 +44,7 @@ type ProxyRulesConfig struct {
 	Type    string        `json:"type"`
 	From    string        `json:"from"`
 	To      string        `json:"to"`
+	Via     string        `json:"via"`
 	Timeout TimeoutConfig `json:"timeout"`
 }
 
@@ -127,6 +129,11 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 const AUTH_NONE = "none"
+const (
+	VIA_TYPE_NONE  = 0
+	VIA_TYPE_PROXY = 1
+	VIA_TYPE_AUTH  = 2
+)
 
 type listenMapType map[string]*ListenConfig
 
@@ -142,9 +149,12 @@ type authRule struct {
 }
 
 type proxyRule struct {
-	allow bool
-	from  *net.IPNet
-	to    *net.IPNet
+	allow    bool
+	from     *net.IPNet
+	viaType  int
+	viaProxy *net.TCPAddr
+	viaAuth  string
+	to       *net.IPNet
 }
 
 var authRules []authRule
@@ -243,7 +253,7 @@ func LoadConfig(path string) (*RootConfig, error) {
 		}
 
 		if ruleConfig.AuthName == "" {
-			return nil, fmt.Errorf("auth  rule with missing authenticator")
+			return nil, fmt.Errorf("auth rule with missing authenticator")
 		}
 
 		if ruleConfig.AuthName != AUTH_NONE {
@@ -292,7 +302,7 @@ func LoadConfig(path string) (*RootConfig, error) {
 
 			ip := net.ParseIP(host)
 			if ip == nil {
-				return nil, fmt.Errorf("auth rule to '%s': '%s' is not a valid IPv4 or IPv6 address", ruleConfig.To, ip)
+				return nil, fmt.Errorf("auth rule to '%s': '%s' is not a valid IPv4 or IPv6 address", ruleConfig.To, ruleConfig.To)
 			}
 
 			port, err := strconv.Atoi(portStr)
@@ -320,18 +330,19 @@ func LoadConfig(path string) (*RootConfig, error) {
 		var ruleConfig ProxyRulesConfig
 		var fromIPNet, toIPNet *net.IPNet
 		var allow bool
-		reStrRule := regexp.MustCompile("^(allow|deny)\\s+from\\s+(\\S+)\\s+to\\s+(\\S+)")
+		reStrRule := regexp.MustCompile("^(allow|deny)\\s+from\\s+(\\S+)\\s+(?:via\\s+(\\S+)\\s+)?to\\s+(\\S+)")
 
 		switch stringOrStruct := rule.(type) {
 		case string:
 			matches := reStrRule.FindStringSubmatch(stringOrStruct)
-			if len(matches) != 4 {
-				return nil, fmt.Errorf("accces rule string has an invalid format: '%s'", stringOrStruct)
+			if len(matches) != 5 {
+				return nil, fmt.Errorf("proxy rule string has an invalid format: '%s'", stringOrStruct)
 			}
 
 			ruleConfig.Type = matches[1]
 			ruleConfig.From = matches[2]
-			ruleConfig.To = matches[3]
+			ruleConfig.Via = matches[3]
+			ruleConfig.To = matches[4]
 
 		case map[string]interface{}:
 			tmpBytes, _ := json.Marshal(stringOrStruct)
@@ -358,10 +369,52 @@ func LoadConfig(path string) (*RootConfig, error) {
 			}
 		}
 
+		// parse via if set
+		var viaType int = VIA_TYPE_NONE
+		var viaProxy *net.TCPAddr = nil
+		var viaAuth string = ""
+
+		if ruleConfig.Via != "all" && ruleConfig.Via != "" {
+			host, portStr, err := net.SplitHostPort(ruleConfig.Via)
+			if err == nil {
+
+				ip := net.ParseIP(host)
+				if ip == nil {
+					return nil, fmt.Errorf("proxy rule via '%s' is not a valid IPv4 or IPv6 address", ruleConfig.Via)
+				}
+
+				port, err := strconv.Atoi(portStr)
+				if err != nil || port < 0 || port > 65535 {
+					return nil, fmt.Errorf("proxy rule via '%s': '%s' is not a valid TCP port", ruleConfig.Via, portStr)
+				}
+
+				viaType = VIA_TYPE_PROXY
+				viaProxy = &net.TCPAddr{
+					IP:   ip,
+					Port: port,
+				}
+
+			} else {
+				// does not look like host:port; assume it's an authenticator name
+
+				if ruleConfig.Via != AUTH_NONE {
+					if _, exists := authenticatorMap[ruleConfig.Via]; !exists {
+						return nil, fmt.Errorf("proxy rule via '%s': '%s' is neither a valid TCP port nor a valid authenicator name", ruleConfig.Via, ruleConfig.Via)
+					}
+				}
+
+				viaType = VIA_TYPE_AUTH
+				viaAuth = ruleConfig.Via
+			}
+		}
+
 		proxyRules = append(proxyRules, proxyRule{
-			allow: allow,
-			from:  fromIPNet,
-			to:    toIPNet,
+			allow:    allow,
+			from:     fromIPNet,
+			viaType:  viaType,
+			viaProxy: viaProxy,
+			viaAuth:  viaAuth,
+			to:       toIPNet,
 		})
 
 	}
@@ -418,9 +471,24 @@ func GetTuningConfig() TuningConfig {
 }
 
 // Checks whether we should accept and incoming TCP connection from the given IP
-func IsClientConnectionAllowed(ip net.IP) bool {
+func IsClientConnectionAllowed(proxyConn *proxyconn.ProxyConn) bool {
+	from := proxyConn.GetClientAddr().IP
+	proxy := proxyConn.GetInternalAddr()
 	for _, rule := range proxyRules {
-		if rule.from == nil || rule.from.Contains(ip) {
+		if rule.viaType == VIA_TYPE_AUTH {
+			// no info on authentication in this stage; ignore rule
+			continue
+		}
+
+		if rule.viaType == VIA_TYPE_PROXY {
+			// rule does only apply for a given proxy
+			if !((rule.viaProxy.IP.IsUnspecified() || rule.viaProxy.IP.Equal(proxy.IP)) && (rule.viaProxy.Port == 0 || rule.viaProxy.Port == proxy.Port)) {
+				// does not match; ignore
+				continue
+			}
+		}
+
+		if rule.from == nil || rule.from.Contains(from) {
 
 			if rule.allow {
 				// the client is at least allowed to connect to some remote destination
@@ -444,7 +512,9 @@ func IsClientConnectionAllowed(ip net.IP) bool {
 }
 
 // Client needs auth?
-func IsClientAuthRequired(from net.IP, to net.TCPAddr) (required bool, authenticator authenticator.Authenticator, authName string) {
+func IsClientAuthRequired(proxyConn *proxyconn.ProxyConn) (required bool, authenticator authenticator.Authenticator, authName string) {
+	from := proxyConn.GetClientAddr().IP
+	to := proxyConn.GetInternalAddr()
 	for _, rule := range authRules {
 		if rule.from == nil || rule.from.Contains(from) {
 			if rule.to == nil ||
@@ -461,8 +531,21 @@ func IsClientAuthRequired(from net.IP, to net.TCPAddr) (required bool, authentic
 }
 
 // Checks whether we should accept a proxy request from IP <from> to IP <to>
-func IsProxyConnectionAllowed(from net.IP, to net.IP) bool {
+func IsProxyConnectionAllowed(proxyConn *proxyconn.ProxyConn, to net.IP) bool {
+	from := proxyConn.GetClientAddr().IP
+	proxy := proxyConn.GetInternalAddr()
 	for _, rule := range proxyRules {
+		if rule.viaType == VIA_TYPE_PROXY {
+			if !((rule.viaProxy.IP.IsUnspecified() || rule.viaProxy.IP.Equal(proxy.IP)) && (rule.viaProxy.Port == 0 || rule.viaProxy.Port == proxy.Port)) {
+				continue
+			}
+		} else if rule.viaType == VIA_TYPE_AUTH {
+			authed, authName := proxyConn.IsSuccessfullyAuthenticated()
+			if !authed && rule.viaAuth != AUTH_NONE || authed && rule.viaAuth != authName {
+				continue
+			}
+		}
+
 		if rule.from == nil || rule.from.Contains(from) {
 			if rule.to == nil || rule.to.Contains(to) {
 				return rule.allow
@@ -493,6 +576,28 @@ func ParseCIDR(cidr string) (*net.IPNet, error) {
 	}
 
 	return net, nil
+}
+
+func ParseTCPAddr(tcpAddr string) (*net.TCPAddr, error) {
+	host, portStr, err := net.SplitHostPort(tcpAddr)
+	if err != nil {
+		return nil, fmt.Errorf("not a valid IPv4:port or [IPv6]:port address")
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil, fmt.Errorf("'%s' is not a valid IPv4 or IPv6 address", host)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 0 || port > 65535 {
+		return nil, fmt.Errorf("'%s' is not a valid TCP port", portStr)
+	}
+
+	return &net.TCPAddr{
+		IP:   ip,
+		Port: port,
+	}, nil
 }
 
 func addToListenMap(lc *ListenConfig) error {

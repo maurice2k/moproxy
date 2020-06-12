@@ -1,11 +1,9 @@
 // Copyright 2019-2020 Moritz Fain
 // Moritz Fain <moritz@fain.io>
-package internal
+package proxyconn
 
 import (
-	"io"
 	"net"
-	"sync/atomic"
 
 	"github.com/maurice2k/tcpserver"
 	"github.com/rs/zerolog"
@@ -16,9 +14,11 @@ type CtxKey string
 
 type ProxyConn struct {
 	*tcpserver.Connection
-	externalAddr  *net.TCPAddr
-	Log           zerolog.Logger
-	read, written int64
+	externalAddr      *net.TCPAddr
+	Log               zerolog.Logger
+	read, written     int64
+	authenticated     bool
+	authenticatorName string
 }
 
 type RemoteAddr struct {
@@ -94,68 +94,13 @@ func (c *ProxyConn) GetExternalAddr() *net.TCPAddr {
 	return c.externalAddr
 }
 
-// CountReader counts bytes read from io.Reader
-type CountReader struct {
-	io.Reader
-	count uint64
+// Flags this connection as successfully authenticated with given authenticator name
+func (c *ProxyConn) SetSuccessfullyAuthenticated(authenticatorName string) {
+	c.authenticated = true
+	c.authenticatorName = authenticatorName
 }
 
-func NewCountReader(r io.Reader) *CountReader {
-	return &CountReader{
-		Reader: r,
-	}
-}
-
-func (cr *CountReader) Read(buf []byte) (int, error) {
-	n, err := cr.Reader.Read(buf)
-	atomic.AddUint64(&cr.count, uint64(n))
-	return n, err
-}
-
-func (cr *CountReader) GetCount() uint64 {
-	return atomic.LoadUint64(&cr.count)
-}
-
-func (cr *CountReader) GetCountAndReset() uint64 {
-	return atomic.SwapUint64(&cr.count, 0)
-}
-
-// CountWriter counts bytes written to io.Writer
-type CountWriter struct {
-	io.Writer
-	count uint64
-}
-
-func NewCountWriter(w io.Writer) *CountWriter {
-	return &CountWriter{
-		Writer: w,
-	}
-}
-
-func (cw *CountWriter) Write(buf []byte) (int, error) {
-	n, err := cw.Writer.Write(buf)
-	atomic.AddUint64(&cw.count, uint64(n))
-	return n, err
-}
-
-func (cw *CountWriter) GetCount() uint64 {
-	return atomic.LoadUint64(&cw.count)
-}
-
-func (cw *CountWriter) GetCountAndReset() uint64 {
-	return atomic.SwapUint64(&cw.count, 0)
-}
-
-// checks whether an error is a timeout "OpError"
-func IsTimeoutError(err error) bool {
-	opErr, ok := err.(*net.OpError)
-	return ok && opErr.Timeout()
-}
-
-func IsIPv6Addr(addr *net.TCPAddr) bool {
-	return addr.IP.To4() == nil && len(addr.IP) == net.IPv6len
-}
-
-func IsUnspecifiedIP(ip net.IP) bool {
-	return ip == nil || len(ip) == 0 || ip.IsUnspecified()
+// Returns whether this connection has been successfully authenticated
+func (c *ProxyConn) IsSuccessfullyAuthenticated() (authenticated bool, authenticatorName string) {
+	return c.authenticated, c.authenticatorName
 }

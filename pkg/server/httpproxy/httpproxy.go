@@ -4,6 +4,7 @@ package httpproxy
 
 import (
 	"moproxy/internal"
+	"moproxy/internal/proxyconn"
 	"moproxy/pkg/config"
 
 	"github.com/maurice2k/tcpserver"
@@ -25,8 +26,8 @@ type Server struct {
 }
 
 type httpClientConn struct {
-	*internal.ProxyConn
-	remoteAddr *internal.RemoteAddr
+	*proxyconn.ProxyConn
+	remoteAddr *proxyconn.RemoteAddr
 	request    *http.Request
 }
 
@@ -70,7 +71,7 @@ func sendReply(conn *httpClientConn, statusCode int, statusText string, err erro
 }
 
 func newHttpConn(conn *tcpserver.Connection) *httpClientConn {
-	return &httpClientConn{ProxyConn: internal.NewProxyConn(conn)}
+	return &httpClientConn{ProxyConn: proxyconn.NewProxyConn(conn)}
 }
 
 
@@ -80,7 +81,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 	log := httpConn.Log
 
-	if !config.IsClientConnectionAllowed(httpConn.GetClientAddr().IP) {
+	if !config.IsClientConnectionAllowed(httpConn.ProxyConn) {
 		log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
 		sendReply(httpConn, http.StatusForbidden, "", nil)
 		return
@@ -112,7 +113,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 			break
 		}
 
-		authRequired, authenticator, authName := config.IsClientAuthRequired(httpConn.GetClientAddr().IP, *httpConn.GetInternalAddr())
+		authRequired, authenticator, authName := config.IsClientAuthRequired(httpConn.ProxyConn)
 		if authRequired {
 
 			log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
@@ -128,6 +129,8 @@ func HandlerFunc(conn *tcpserver.Connection) {
 				sendReply(httpConn, http.StatusProxyAuthRequired, "", err)
 				break
 			}
+
+			httpConn.SetSuccessfullyAuthenticated(authName)
 		}
 
 		if httpConn.request.Method == "CONNECT" {
@@ -168,7 +171,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 func NewServer(listenAddr string, externalIp string) *Server {
 	server, _ := tcpserver.NewServer(listenAddr)
 
-	ctx := context.WithValue(*server.GetContext(), internal.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
+	ctx := context.WithValue(*server.GetContext(), proxyconn.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
 	server.SetContext(&ctx)
 
 	s := &Server{server}

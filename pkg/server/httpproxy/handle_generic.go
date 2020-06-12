@@ -4,6 +4,7 @@ package httpproxy
 
 import (
 	"moproxy/internal"
+	"moproxy/internal/proxyconn"
 
 	"bufio"
 	"net"
@@ -13,7 +14,7 @@ import (
 )
 
 func handleGenericHttpMethod(conn *httpClientConn) {
-	remoteAddr := &internal.RemoteAddr{
+	remoteAddr := &proxyconn.RemoteAddr{
 		TCPAddr:    new(net.TCPAddr),
 	}
 
