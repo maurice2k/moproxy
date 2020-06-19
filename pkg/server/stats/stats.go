@@ -22,8 +22,7 @@ type Server struct {
 	config config.WebserverConfig
 }
 
-func CreateStatsServer() *Server {
-	statsConfig := config.GetStatsConfig()
+func CreateStatsServer(statsConfig config.StatsConfig) *Server {
 	if statsConfig.Webserver.Listen == "" {
 		return nil
 	}

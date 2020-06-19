@@ -5,6 +5,7 @@ package httpproxy
 import (
 	"moproxy/internal"
 	"moproxy/internal/proxyconn"
+	"moproxy/pkg/misc"
 
 	"bufio"
 	"net"
@@ -74,7 +75,7 @@ func handleGenericHttpMethod(conn *httpClientConn) {
 	br := bufio.NewReader(remoteTCPConn)
 	response, err := http.ReadResponse(br, conn.request)
 
-	cw := internal.NewCountWriter(conn)
+	cw := misc.NewCountWriter(conn)
 	response.Write(cw)
 
 	conn.AddWritten(int64(cw.GetCountAndReset()))

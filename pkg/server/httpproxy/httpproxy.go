@@ -3,9 +3,9 @@
 package httpproxy
 
 import (
-	"moproxy/internal"
 	"moproxy/internal/proxyconn"
 	"moproxy/pkg/config"
+	"moproxy/pkg/misc"
 
 	"github.com/maurice2k/tcpserver"
 
@@ -81,17 +81,17 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 	log := httpConn.Log
 
-	if !config.IsClientConnectionAllowed(httpConn.ProxyConn) {
+	if !proxyconn.IsClientConnectionAllowed(httpConn.ProxyConn) {
 		log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
 		sendReply(httpConn, http.StatusForbidden, "", nil)
 		return
 	}
 
-	tcpTimeouts := config.GetTcpTimeouts()
-	httpTimeouts := config.GetHttpTimeouts()
+	tcpTimeouts := httpConn.GetConfig().GetTcpTimeouts()
+	httpTimeouts := httpConn.GetConfig().GetHttpTimeouts()
 
 	br := brPool.Get().(*bufio.Reader)
-	cr := internal.NewCountReader(httpConn)
+	cr := misc.NewCountReader(httpConn)
 	br.Reset(cr)
 
 	reHttpPrefix, _ := regexp.Compile("^https?://")
@@ -113,7 +113,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 			break
 		}
 
-		authRequired, authenticator, authName := config.IsClientAuthRequired(httpConn.ProxyConn)
+		authRequired, authenticator, authName := proxyconn.IsClientAuthRequired(httpConn.ProxyConn)
 		if authRequired {
 
 			log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
@@ -158,7 +158,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 			ts := time.Now().Add(time.Duration(httpTimeouts.KeepAlive))
 			httpConn.SetDeadline(ts)
 			_, err = br.Peek(1)
-			if internal.IsTimeoutError(err) {
+			if misc.IsTimeoutError(err) {
 				log.Debug().Msgf("Idle timeout for proxy connection from %s reached", httpConn.GetClientAddr())
 				break
 			}
@@ -168,10 +168,14 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 }
 
-func NewServer(listenAddr string, externalIp string) *Server {
+func NewServer(listenAddr string, externalIp string, configInstance *config.Configuration) *Server {
 	server, _ := tcpserver.NewServer(listenAddr)
 
+	lc := &tcpserver.ListenConfig{SocketReusePort: true}
+	server.SetListenConfig(lc)
+
 	ctx := context.WithValue(*server.GetContext(), proxyconn.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
+	ctx = context.WithValue(ctx, proxyconn.CtxKey("config"), configInstance)
 	server.SetContext(&ctx)
 
 	s := &Server{server}

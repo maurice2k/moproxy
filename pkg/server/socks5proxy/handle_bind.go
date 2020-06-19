@@ -3,10 +3,10 @@
 package socks5proxy
 
 import (
-	"moproxy/internal"
-	"moproxy/pkg/config"
-
 	"github.com/maurice2k/tcpserver"
+	"moproxy/internal"
+	"moproxy/internal/proxyconn"
+	"moproxy/pkg/misc"
 
 	"net"
 	"time"
@@ -16,9 +16,9 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 	log := conn.GetLogger()
 
 	bindAddr := getExternalBindAddr(conn)
-	isBindAddrIPv6 := internal.IsIPv6Addr(bindAddr)
+	isBindAddrIPv6 := misc.IsIPv6Addr(bindAddr)
 
-	if internal.IsUnspecifiedIP(request.RemoteAddr.IP) {
+	if misc.IsUnspecifiedIP(request.RemoteAddr.IP) {
 		// No IP set so far, we need to resolve the hostname
 		// If the outgoing IP is an IPv6 address, try resolving to IPv6
 
@@ -36,9 +36,9 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 		request.RemoteAddr.IP = ip.IP
 	}
 
-	tcpTimeouts := config.GetTcpTimeouts()
+	tcpTimeouts := conn.GetConfig().GetTcpTimeouts()
 
-	if !config.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
+	if !proxyconn.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
 		log.Debug().Msgf("SOCKS 'BIND' not allowed by ruleset")
 		sendReply(conn, request, REP_CONN_NOT_ALLOWED_BY_RULESET)
 		return

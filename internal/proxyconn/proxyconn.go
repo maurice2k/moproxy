@@ -5,6 +5,9 @@ package proxyconn
 import (
 	"net"
 
+	"moproxy/pkg/authenticator"
+	"moproxy/pkg/config"
+
 	"github.com/maurice2k/tcpserver"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -19,6 +22,7 @@ type ProxyConn struct {
 	read, written     int64
 	authenticated     bool
 	authenticatorName string
+	config            *config.Configuration
 }
 
 type RemoteAddr struct {
@@ -103,4 +107,30 @@ func (c *ProxyConn) SetSuccessfullyAuthenticated(authenticatorName string) {
 // Returns whether this connection has been successfully authenticated
 func (c *ProxyConn) IsSuccessfullyAuthenticated() (authenticated bool, authenticatorName string) {
 	return c.authenticated, c.authenticatorName
+}
+
+func (c *ProxyConn) GetConfig() *config.Configuration {
+	if c.config == nil {
+		ctx := c.GetServer().GetContext()
+		c.config = (*ctx).Value(CtxKey("config")).(*config.Configuration)
+	}
+	return c.config
+}
+
+
+// Client needs auth?
+func IsClientAuthRequired(proxyConn *ProxyConn) (required bool, authenticator authenticator.Authenticator, authName string) {
+	return proxyConn.GetConfig().IsClientAuthRequired(proxyConn.GetClientAddr().IP, proxyConn.GetInternalAddr())
+}
+
+// Checks whether we should accept and incoming TCP connection from the given IP
+func IsClientConnectionAllowed(proxyConn *ProxyConn) bool {
+	return proxyConn.GetConfig().IsClientConnectionAllowed(proxyConn.GetClientAddr().IP, proxyConn.GetInternalAddr())
+}
+
+
+// Checks whether we should accept a proxy request from IP <from> to IP <to>
+func IsProxyConnectionAllowed(proxyConn *ProxyConn, to net.IP) bool {
+	authed, authName := proxyConn.IsSuccessfullyAuthenticated()
+	return proxyConn.GetConfig().IsProxyConnectionAllowed(proxyConn.GetClientAddr().IP, proxyConn.GetInternalAddr(), to, authed, authName)
 }

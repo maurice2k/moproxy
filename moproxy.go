@@ -68,12 +68,6 @@ func main() {
 		log.Logger = log.Logger.Level(zerolog.DebugLevel)
 	}
 
-	// Load config
-	_, err = config.LoadConfig(mainOpts.Config)
-	if err != nil {
-		log.Error().Msgf("Error reading config: %s", err)
-		os.Exit(2)
-	}
 
 	// Write pid file (if given)
 	if mainOpts.Pidfile != "" {
@@ -83,7 +77,16 @@ func main() {
 	}
 
 	// Serve
-	err = server.Run()
+	err = server.Run(func() *config.Configuration {
+		// Load config
+		configInstance, err := config.LoadConfig(mainOpts.Config)
+		if err != nil {
+			log.Error().Msgf("Error reading config: %s", err)
+			os.Exit(2)
+		}
+		return configInstance
+	})
+
 	if err != nil {
 		log.Error().Msgf("Error running server: %s", err)
 		os.Exit(3)

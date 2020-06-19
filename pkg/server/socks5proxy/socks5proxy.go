@@ -3,10 +3,10 @@
 package socks5proxy
 
 import (
-	"moproxy/internal"
 	"moproxy/internal/proxyconn"
 	"moproxy/pkg/authenticator"
 	"moproxy/pkg/config"
+	"moproxy/pkg/misc"
 	"moproxy/pkg/server/stats"
 
 	"github.com/maurice2k/tcpserver"
@@ -121,7 +121,7 @@ func sendReply(conn *socks5ClientConn, request *Request, replyCode byte) {
 		boundAddr = request.LocalAddr
 	} else {
 		// no remote connection has been made yet; we're using a zero address in the format of the external bind address
-		if internal.IsIPv6Addr(getExternalBindAddr(conn)) {
+		if misc.IsIPv6Addr(getExternalBindAddr(conn)) {
 			boundAddr.IP = net.IPv6zero
 		} else {
 			boundAddr.IP = net.IPv4zero
@@ -132,7 +132,7 @@ func sendReply(conn *socks5ClientConn, request *Request, replyCode byte) {
 	var wr bytes.Buffer
 	wr.Write([]byte{SOCKS5_VERSION, replyCode, 0x00})
 
-	if internal.IsUnspecifiedIP(boundAddr.IP) && request.RemoteAddr.DomainName != "" {
+	if misc.IsUnspecifiedIP(boundAddr.IP) && request.RemoteAddr.DomainName != "" {
 		// kind of a special case to get cURLs error message more helpful
 		wr.WriteByte(ATYP_DOMAINNAME)
 		wr.WriteByte(byte(len(request.RemoteAddr.DomainName)))
@@ -164,7 +164,7 @@ func validateVersion(conn *socks5ClientConn) bool {
 	conn.AddRead(int64(n))
 
 	if err != nil {
-		if internal.IsTimeoutError(err) {
+		if misc.IsTimeoutError(err) {
 			log.Debug().Msgf("Timeout while reading version after %s", time.Now().Sub(conn.GetStartTime()))
 		}
 		return false
@@ -228,7 +228,7 @@ func authenticate(conn *socks5ClientConn) bool {
 	conn.AddRead(int64(n))
 
 	if err != nil {
-		if internal.IsTimeoutError(err) {
+		if misc.IsTimeoutError(err) {
 			log.Debug().Msgf("Timeout in authentication phase while reading number of authentication methods after %s", time.Now().Sub(conn.GetStartTime()))
 		}
 		return false
@@ -244,13 +244,13 @@ func authenticate(conn *socks5ClientConn) bool {
 	conn.AddRead(int64(n))
 
 	if err != nil {
-		if internal.IsTimeoutError(err) {
+		if misc.IsTimeoutError(err) {
 			log.Debug().Msgf("Timeout in authentication phase while reading authentication methods after %s", time.Now().Sub(conn.GetStartTime()))
 		}
 		return false
 	}
 
-	authRequired, authenticator, authName := config.IsClientAuthRequired(conn.ProxyConn)
+	authRequired, authenticator, authName := proxyconn.IsClientAuthRequired(conn.ProxyConn)
 	if authRequired {
 		log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
 	}
@@ -412,7 +412,7 @@ func readRequest(conn *socks5ClientConn) *Request {
 	conn.AddRead(int64(n))
 
 	if err != nil {
-		if internal.IsTimeoutError(err) {
+		if misc.IsTimeoutError(err) {
 			log.Debug().Msgf("Timeout in negotiate phase while reading request header after %s", time.Now().Sub(conn.GetStartTime()))
 		}
 		return nil
@@ -500,12 +500,12 @@ func newSocks5Conn(conn *tcpserver.Connection) *socks5ClientConn {
 func HandlerFunc(conn *tcpserver.Connection) {
 	s5Conn := newSocks5Conn(conn)
 
-	if !config.IsClientConnectionAllowed(s5Conn.ProxyConn) {
+	if !proxyconn.IsClientConnectionAllowed(s5Conn.ProxyConn) {
 		s5Conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
 		return
 	}
 
-	tcpTimeouts := config.GetTcpTimeouts()
+	tcpTimeouts := s5Conn.GetConfig().GetTcpTimeouts()
 	if tcpTimeouts.Negotiate > 0 {
 		ts := time.Now().Add(time.Duration(tcpTimeouts.Negotiate))
 		s5Conn.SetDeadline(ts)
@@ -544,15 +544,18 @@ func HandlerFunc(conn *tcpserver.Connection) {
 	stats.PushEvent(s5Conn.CreateStatsEvent())
 }
 
-
 type Server struct {
 	*tcpserver.Server
 }
 
-func NewServer(listenAddr string, externalIp string) *Server {
+func NewServer(listenAddr string, externalIp string, configInstance *config.Configuration) *Server {
 	server, _ := tcpserver.NewServer(listenAddr)
 
+	lc := &tcpserver.ListenConfig{SocketReusePort: true}
+	server.SetListenConfig(lc)
+
 	ctx := context.WithValue(*server.GetContext(), proxyconn.CtxKey("externalAddr"), &net.TCPAddr{IP: net.ParseIP(externalIp)})
+	ctx = context.WithValue(ctx, proxyconn.CtxKey("config"), configInstance)
 	server.SetContext(&ctx)
 
 	s := &Server{server}

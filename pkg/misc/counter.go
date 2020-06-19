@@ -1,8 +1,7 @@
-package internal
+package misc
 
 import (
 	"io"
-	"net"
 	"sync/atomic"
 )
 
@@ -56,18 +55,4 @@ func (cw *CountWriter) GetCount() uint64 {
 
 func (cw *CountWriter) GetCountAndReset() uint64 {
 	return atomic.SwapUint64(&cw.count, 0)
-}
-
-// checks whether an error is a timeout "OpError"
-func IsTimeoutError(err error) bool {
-	opErr, ok := err.(*net.OpError)
-	return ok && opErr.Timeout()
-}
-
-func IsIPv6Addr(addr *net.TCPAddr) bool {
-	return addr.IP.To4() == nil && len(addr.IP) == net.IPv6len
-}
-
-func IsUnspecifiedIP(ip net.IP) bool {
-	return ip == nil || len(ip) == 0 || ip.IsUnspecified()
 }

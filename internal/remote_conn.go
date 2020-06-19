@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"moproxy/internal/proxyconn"
-	"moproxy/pkg/config"
+	"moproxy/pkg/misc"
 )
 
 // error type consts; these are numerically identical to SOCKS5 reply codes
@@ -34,9 +34,9 @@ func (e *RemoteConnError) Error() string {
 func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.RemoteAddr) (*net.TCPConn, error) {
 	log := clientConn.Log
 	externalAddr := clientConn.GetExternalAddr()
-	isExternalAddrIPv6 := IsIPv6Addr(externalAddr)
+	isExternalAddrIPv6 := misc.IsIPv6Addr(externalAddr)
 
-	if IsUnspecifiedIP(remoteAddr.IP) {
+	if misc.IsUnspecifiedIP(remoteAddr.IP) {
 		// No IP set so far, we need to resolve the hostname
 		// If the external IP is an IPv6 address, try resolving to IPv6
 
@@ -63,12 +63,12 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 		network = "tcp6"
 	}
 
-	tcpTimeouts := config.GetTcpTimeouts()
+	tcpTimeouts := clientConn.GetConfig().GetTcpTimeouts()
 	remoteDialer := net.Dialer{
 		LocalAddr: externalAddr,
 	}
 
-	if config.GetTuningConfig().TFOOutgoing {
+	if clientConn.GetConfig().GetTuningConfig().TFOOutgoing {
 		remoteDialer.Control = applyRemoteConnSocketOptions(log)
 	}
 
@@ -77,7 +77,7 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 		remoteDialer.Deadline = ts
 	}
 
-	if !config.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
+	if !proxyconn.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
 		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset"), Type: ERR_NOT_ALLOWED_BY_RULESET, Err: nil}
 	}
 
@@ -86,7 +86,7 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 
 		errType := byte(ERR_HOST_UNREACHABLE)
 
-		if IsTimeoutError(err) {
+		if misc.IsTimeoutError(err) {
 			return nil, &RemoteConnError{msg: fmt.Sprintf("Timeout connecting to remote address '%s' with error: %s after %s", remoteAddr, err, time.Now().Sub(clientConn.GetStartTime())), Type: ERR_HOST_UNREACHABLE, Err: err}
 
 		} else if strings.Contains(err.Error(), "network is unreachable") {
