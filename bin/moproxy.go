@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const version string = "0.3.0"
+var VERSION string = "dev"
 
 var mainOpts struct {
 	Config  string `short:"c" long:"config" description:"Config file" value-name:"FILE" default:"./configs/moproxy.conf"`
@@ -33,7 +33,7 @@ func main() {
 	_, err := parser.Parse()
 
 	if mainOpts.Version {
-		fmt.Println(version)
+		fmt.Println(VERSION)
 		os.Exit(0)
 	}
 

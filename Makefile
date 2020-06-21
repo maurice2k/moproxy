@@ -8,8 +8,6 @@ MAIN_FILE_OUT = bin/moproxy
 VALID_COMMIT = 22324cad737cdeff930b8f6793c8182ba278a84e
 
 INSTALL_BASE = /opt
-INSTALL_COPY_FILES = configs/moproxy.conf.dist configs/moproxy.service.dist bin/moproxy
-INSTALL_CREATE_EMPTY_FOLDERS = logs
 
 ######################################
 ## CONFIGURATION #####################
@@ -34,49 +32,51 @@ QV=$(if $V,-v,)
 
 ### Setup version variable
 COMMIT = $(shell git rev-parse --short HEAD 2>/dev/null)
+TAG_NAME = $(shell git describe --tags HEAD 2>/dev/null)
 BRANCH = $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 VERSION = $(BRANCH)-$(COMMIT)
 
 CLEAN_TREE = $(shell git status --untracked-files=no --porcelain 2>/dev/null)
 ifneq ($(CLEAN_TREE),)
-    VERSION = "$(VERSION)-dirty"
+    VERSION := $(VERSION)-dirty
 endif
 
 VALID_REPO = $(shell git merge-base --is-ancestor $(COMMIT) $(VALID_COMMIT) 2>/dev/null ; echo $$?)
 ifneq ($(VALID_REPO),1)
-    VERSION = "dev"
+    VERSION = dev
+endif
+
+ifneq ($(TAG_NAME),)
+	VERSION := $(TAG_NAME) ($(VERSION))
 endif
 
 ### Compiler flags
-LDFLAGS = -ldflags "-X main.VERSION=$(VERSION) -s -w"
+LDFLAGS = -ldflags '-X "main.VERSION=$(VERSION)" -s -w'
 
 ### Targets
-.DEFAULT_GOAL := $(PACKAGE)
+.DEFAULT_GOAL := build
 
-.PHONY: all
-all: $(PACKAGE)
-
-$(PACKAGE): vendor
+.PHONY: build
+build:
 	$(info = Building $(PACKAGE) (version $(VERSION)))
-	$Q cd $(BASE) && $(GO) build $(QV) $(LDFLAGS) -o $(MAIN_FILE_OUT) $(MAIN_FILE_IN)
-	$Q touch $@
+	$Q cd $(BASE) && $(GO) build -v $(QV) $(LDFLAGS) -o $(MAIN_FILE_OUT) $(MAIN_FILE_IN)
 
-.PHONY: vendor
-vendor: vendor/modules.txt
 
-vendor/modules.txt:
-	$(info = Vendoring packages...)
-	$Q cd $(BASE) && $(GO) mod vendor
-
-.PHONY: clean
-clean:
-	$(info = Cleaning...)
-	$Q rm -f vendor/.dirstamp
-	$Q go clean
+INSTALL_COPY_FILES = configs/moproxy.conf.dist configs/moproxy.service.dist bin/moproxy
+INSTALL_CREATE_EMPTY_FOLDERS = logs
 
 .PHONY: install
-install: $(PACKAGE)
+install:
 	$(info = Installing $(PACKAGE) to $(INSTALL_PATH))
 	$Q mkdir -p $(INSTALL_PATH)
 	$Q mkdir -p $(addprefix $(INSTALL_PATH)/, $(INSTALL_CREATE_EMPTY_FOLDERS))
 	$Q cp -ar --parents  $(INSTALL_COPY_FILES) $(INSTALL_PATH)/
+
+.PHONY: install-systemd
+install-systemd:
+	$(info = Installing systemd service)
+
+	$Q cp -ar $(INSTALL_PATH)/configs/moproxy.service.dist $(INSTALL_PATH)/configs/moproxy.service
+	$Q ln -s $(INSTALL_PATH)/configs/moproxy.service /etc/systemd/system/moproxy.service
+	$Q systemctl enable moproxy.service
+
