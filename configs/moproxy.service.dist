@@ -1,0 +1,21 @@
+[Unit]
+Description='MoProxy - Blazing fast SOCKS5 and HTTP proxy'
+
+Requires=network.target
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/moproxy/bin/moproxy -vvvv
+ExecReload=/bin/kill -HUP $MAINPID
+User=moproxy
+Group=moproxy
+LimitNOFILE=65536
+SyslogIdentifier=moproxy
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
