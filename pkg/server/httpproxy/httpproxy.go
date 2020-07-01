@@ -7,8 +7,6 @@ import (
 	"moproxy/pkg/config"
 	"moproxy/pkg/misc"
 
-	"github.com/maurice2k/tcpserver"
-
 	"bufio"
 	"context"
 	"encoding/base64"
@@ -19,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/maurice2k/tcpserver"
 )
 
 type Server struct {
@@ -61,6 +61,10 @@ func sendReply(conn *httpClientConn, statusCode int, statusText string, err erro
 	if err != nil {
 		content = err.Error()
 	}
+	if content == "" && statusCode >= 300 {
+		content = statusText
+	}
+
 	buf = append(buf, fmt.Sprintf("%s %d %s\r\nServer: moproxy\r\nContent-Length: %d\r\nConnection: close%s\r\n\r\n", proto, statusCode, statusText, len(content), additionalHeaders)...)
 	if content != "" {
 		buf = append(buf, content...)
@@ -71,7 +75,7 @@ func sendReply(conn *httpClientConn, statusCode int, statusText string, err erro
 }
 
 func newHttpConn(conn *tcpserver.Connection) *httpClientConn {
-	return &httpClientConn{ProxyConn: proxyconn.NewProxyConn(conn)}
+	return &httpClientConn{ProxyConn: proxyconn.NewProxyConn(conn, config.PROXY_TYPE_HTTP)}
 }
 
 
@@ -81,14 +85,15 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 	log := httpConn.Log
 
-	if !proxyconn.IsClientConnectionAllowed(httpConn.ProxyConn) {
-		log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
-		sendReply(httpConn, http.StatusForbidden, "", nil)
-		return
-	}
+	conf := config.GetForServer(httpConn.GetServer())
 
-	tcpTimeouts := httpConn.GetConfig().GetTcpTimeouts()
-	httpTimeouts := httpConn.GetConfig().GetHttpTimeouts()
+	allowed, authenticator := conf.IsClientConnectionAllowed(httpConn.ProxyConn)
+	// We could have dropped the connection right away if not allowed, but
+	// this seems to confuse some clients. We wait for the HTTP request and
+	// send a proper HTTP response... see below.
+
+	tcpTimeouts := conf.GetTcpTimeouts()
+	httpTimeouts := conf.GetHttpTimeouts()
 
 	br := brPool.Get().(*bufio.Reader)
 	cr := misc.NewCountReader(httpConn)
@@ -97,7 +102,6 @@ func HandlerFunc(conn *tcpserver.Connection) {
 	reHttpPrefix, _ := regexp.Compile("^https?://")
 
 	for {
-
 		var err error
 
 		if tcpTimeouts.Negotiate > 0 {
@@ -113,10 +117,20 @@ func HandlerFunc(conn *tcpserver.Connection) {
 			break
 		}
 
-		authRequired, authenticator, authName := proxyconn.IsClientAuthRequired(httpConn.ProxyConn)
-		if authRequired {
+		connectRequest := httpConn.request.Method == "CONNECT"
 
-			log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
+		log = log.With().Str("remote", httpConn.request.RequestURI).Logger()
+		httpConn.Log = log
+
+		if !allowed {
+			log.Debug().Msgf("Connection from %s not allowed by ruleset (client rules)", conn.GetClientAddr().IP)
+			sendReply(httpConn, http.StatusForbidden, "", nil)
+			return
+		}
+
+		if authenticator != nil {
+
+			log.Debug().Msgf("Authentication required using authenticator '%s'", authenticator.GetName())
 
 			proxyAuth := httpConn.request.Header.Get("Proxy-Authorization")
 			username, password, ok := parseBasicAuth(proxyAuth)
@@ -130,10 +144,10 @@ func HandlerFunc(conn *tcpserver.Connection) {
 				break
 			}
 
-			httpConn.SetSuccessfullyAuthenticated(authName)
+			httpConn.SetSuccessfullyAuthenticated(authenticator)
 		}
 
-		if httpConn.request.Method == "CONNECT" {
+		if connectRequest {
 			log.Debug().Msgf("CONNECT request for %s", httpConn.request.RequestURI)
 
 			handleConnectMethod(httpConn)

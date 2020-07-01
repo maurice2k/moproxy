@@ -3,13 +3,14 @@
 package socks5proxy
 
 import (
-	"github.com/maurice2k/tcpserver"
 	"moproxy/internal"
-	"moproxy/internal/proxyconn"
+	"moproxy/pkg/config"
 	"moproxy/pkg/misc"
 
 	"net"
 	"time"
+
+	"github.com/maurice2k/tcpserver"
 )
 
 func handleBindCommand(conn *socks5ClientConn, request *Request) {
@@ -36,10 +37,11 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 		request.RemoteAddr.IP = ip.IP
 	}
 
-	tcpTimeouts := conn.GetConfig().GetTcpTimeouts()
+	conf := config.GetForServer(conn.GetServer())
+	tcpTimeouts := conf.GetTcpTimeouts()
 
-	if !proxyconn.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
-		log.Debug().Msgf("SOCKS 'BIND' not allowed by ruleset")
+	if !conf.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
+		log.Debug().Msgf("SOCKS 'BIND' not allowed by ruleset (proxy rules)")
 		sendReply(conn, request, REP_CONN_NOT_ALLOWED_BY_RULESET)
 		return
 	}

@@ -28,18 +28,32 @@
         "socks5 [2001:0DB8::1234]:1080 172.10.1.22"
     ],
     "access": {
-        "authRules": [
-            // Authentication rules control which clients are required
-            // to do a username/password authentication. The rules are evaluated
-            // in sequence until a match is found ("first match wins").
+        "clientRules": [
+            // Client rules control which clients are allowed to connect to
+            // a proxy (or a set of proxies) defined by addresses or protocol.
+            // They also control whether a client is required to do a username
+            // and password authentication.
+            //
+            // +--------+ [- client rules -] +-------+               +--------+
+            // | client |------------------->| proxy |-------------->| remote |
+            // +--------+                    +-------+               +--------+
+            //
+            // The rules are evaluated in sequence until a match is found
+            // ("first match wins").
+            // The last built-in rule is "deny from all to all".
             //
             // The format is as following:
-            // "auth with <auth-name> from <client> to <internal>"
+            // "(allow|deny) from <client> to (<internal>|<proxy-type>) [with auth <auth-name>]"
             //
-            // <auth-name> as defined in section "auth"
-            //             Use "none" for no authentication
             // <client> is the client's IP address or IP address range or "all"
             // <internal> is the internal proxy listening IP address or "all"
+            // <proxy-type> is either "socks5" or "http"
+            //
+            // The optional "with auth" attribute adds a username/password
+            // authentication requirement to the connections matching the given rule.
+            //
+            // <auth-name> is the authenticator as defined in section "auth"
+            //             that is being used for authentication
 
             //////////////////////////////////////////////////////////////
             // THE FOLLOWING ARE SAMPLE RULES. REMOVE FOR PRODUCTION USE!!
@@ -47,20 +61,30 @@
 
             // no authentication for all clients from 192.168.1.xxx to any
             // configured proxy on port 1080
-            "auth with none from 192.168.1.0/24 to 0.0.0.0:1080",
+            "allow from 192.168.1.0/24 to 0.0.0.0:1080",
+
+            // no authentication for any client to any http proxy
+            "allow from all to http",
 
             // authenticate any other client for any proxy with "mySimpleAuth"
-            "auth with mySimpleAuth from all to all"
+            "allow from all to all with auth mySimpleAuth"
         ],
         "proxyRules": [
             // Proxy rules control whether a client is allowed to connect
             // to a given remote destination through a proxy defined under "listen".
+            // These rules are ONLY evaluated AFTER the client has passed any
+            // client rules defined under "clientRules".
+            //
+            // +--------+                    +-------+               +--------+
+            // | client |------------------->| proxy |-------------->| remote |
+            // +--------+                    +-------+               +--------+
+            //      [------------------ proxy rules ---------------------]
             //
             // The rules are evaluated in sequence until a match is found
             // ("first match wins"). That means, the first rule
             // matched is the rule that will be used to allow or deny a
-            // particular connection.
-            // The last (built-in) rule is deny from all to all.
+            // particular proxy connection.
+            // The last built-in rule is "deny from all to all".
             //
             // The format is as following:
             // "(allow|deny) from <client> [via <internal>|<auth-name>] to <remote>"
@@ -72,7 +96,7 @@
             // proxy listening IP address or to an <auth-name> authenticator.
             //
             // <internal> is the internal proxy listening IP address or "all"
-            // <auth-name> as defined in section "auth"
+            // <auth-name> is the authenticator as defined in section "auth"
             //             Use "none" for no authentication
 
             //////////////////////////////////////////////////////////////

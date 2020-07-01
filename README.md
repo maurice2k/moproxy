@@ -14,14 +14,28 @@ It uses *[tcpserver](https://github.com/maurice2k/tcpserver)* as a basis.
 * CONNECT command (normal SOCKS5 proxy usage)
 * BIND command (required for i.e. non-PASV FTP)
 * TCP FastOpen (TFO) support for remote connections with Linux Kernel 4.11+
+* Config reloading (using SIGHUP)
+
+
+## Installation
+
+Installing moproxy is pretty simple using `make`. It only requires Go 1.13 (or better) to be installed on your system. 
+```
+# make
+# make install
+```
+
+This builds and installs moproxy to `/opt/moproxy` by default and registers a systemd service with the name `moproxy`to `start`, `reload` and `stop` the service.
+
+You need to copy `moproxy.conf.dist` to `moproxy.conf` within `/opt/moproxy/configs` and adjust it to your needs prior to starting the service.
+The config file is in JSON format with documentation and examples as comments.
+
+
 
 ## TODOs
-* ~~Add a "via" option in proxyRules that restricts rules to a given proxy or authentication~~
-* Cleanup HTTP non-CONNECT part (maybe remove usage of http.Request/http.Response)
 * Logging to SQLite
 * JSON status page
 * Support for more flexible authenticators (squid style)
-* Maybe support UDP ASSOCIATE command
 
 
 ## License

@@ -3,11 +3,9 @@
 package config
 
 import (
+	"moproxy/internal/proxyconn"
 	"moproxy/pkg/authenticator"
 	"moproxy/pkg/misc"
-
-	"github.com/DisposaBoy/JsonConfigReader"
-	"github.com/rs/zerolog/log"
 
 	"encoding/json"
 	"errors"
@@ -17,6 +15,10 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/DisposaBoy/JsonConfigReader"
+	"github.com/maurice2k/tcpserver"
+	"github.com/rs/zerolog/log"
 )
 
 type RootConfig struct {
@@ -28,15 +30,16 @@ type RootConfig struct {
 }
 
 type AccessConfig struct {
-	AuthRules  []interface{}         `json:"authRules"`
-	ProxyRules []interface{}         `json:"proxyRules"`
-	Auth       map[string]AuthConfig `json:"auth"`
+	ClientRules []interface{}         `json:"clientRules"`
+	ProxyRules  []interface{}         `json:"proxyRules"`
+	Auth        map[string]AuthConfig `json:"auth"`
 }
 
 type AuthRulesConfig struct {
+	Type     string `json:"type"`
 	From     string `json:"from"`
 	To       string `json:"to"`
-	AuthName string `json:"authName"`
+	AuthName string `json:"withAuth"`
 }
 
 type ProxyRulesConfig struct {
@@ -134,19 +137,27 @@ const (
 	VIA_TYPE_AUTH  = 2
 )
 
-type authRule struct {
-	authName string
-	from     *net.IPNet
-	to       *net.TCPAddr
+const (
+	PROXY_TYPE_UNSPECIFIED = 0
+	PROXY_TYPE_SOCKS5      = 1
+	PROXY_TYPE_HTTP        = 2
+)
+
+type clientRule struct {
+	allow       bool
+	authName    string
+	from        *net.IPNet
+	to          *net.TCPAddr
+	toProxyType int
 }
 
 type proxyRule struct {
-	allow    bool
-	from     *net.IPNet
-	viaType  int
-	viaProxy *net.TCPAddr
-	viaAuth  string
-	to       *net.IPNet
+	allow       bool
+	from        *net.IPNet
+	viaType     int
+	viaProxy    *net.TCPAddr
+	viaAuthName string
+	to          *net.IPNet
 }
 
 type listenMapType map[string]*ListenConfig
@@ -156,7 +167,7 @@ type Configuration struct {
 	root             *RootConfig
 	listenMap        listenMapType
 	authenticatorMap authenticatorMapType
-	authRules        []authRule
+	clientRules      []clientRule
 	proxyRules       []proxyRule
 }
 
@@ -235,22 +246,24 @@ func LoadConfig(path string) (*Configuration, error) {
 
 	}
 
-	// Parse auth rules and add authenticator to lookup
-	for _, rule := range mainConf.Access.AuthRules {
+	// Parse client rules and add authenticator to lookup
+	for _, rule := range mainConf.Access.ClientRules {
 
 		var ruleConfig AuthRulesConfig
 		var fromIPNet *net.IPNet
 		var toIPPort *net.TCPAddr
-		reStrRule := regexp.MustCompile("^(?:auth\\s+with\\s+)?(\\S+)\\s+from\\s+(\\S+)\\s+to\\s+(\\S+)")
+		var toProxyType int
+		reStrRule := regexp.MustCompile("^(allow|deny)\\s+from\\s+(\\S+)\\s+to\\s+(\\S+)(?:\\s+with.auth\\s(\\S+)|)$")
 
 		switch stringOrStruct := rule.(type) {
 		case string:
 			matches := reStrRule.FindStringSubmatch(stringOrStruct)
-			if len(matches) != 4 {
-				return nil, fmt.Errorf("auth rule string has an invalid format: '%s'", stringOrStruct)
+			if len(matches) != 5 {
+				return nil, fmt.Errorf("client rule string has an invalid format: '%s'", stringOrStruct)
 			}
 
-			ruleConfig.AuthName = matches[1]
+			ruleConfig.Type = matches[1]
+			ruleConfig.AuthName = matches[4]
 			ruleConfig.From = matches[2]
 			ruleConfig.To = matches[3]
 
@@ -259,17 +272,19 @@ func LoadConfig(path string) (*Configuration, error) {
 			json.Unmarshal(tmpBytes, &ruleConfig)
 		}
 
-		if ruleConfig.AuthName == "" {
-			return nil, fmt.Errorf("auth rule with missing authenticator")
+		if ruleConfig.Type != "allow" && ruleConfig.Type != "deny" {
+			return nil, fmt.Errorf("client rule type must be either 'allow' or 'deny', given: '%s'", ruleConfig.Type)
 		}
 
-		if ruleConfig.AuthName != AUTH_NONE {
+		if ruleConfig.AuthName != AUTH_NONE && ruleConfig.AuthName != "" {
 			authConfig, exists := mainConf.Access.Auth[ruleConfig.AuthName]
 			if !exists {
-				return nil, fmt.Errorf("auth rule with unknown authenticator: '%s'", ruleConfig.AuthName)
+				return nil, fmt.Errorf("client rule with unknown authenticator: '%s'", ruleConfig.AuthName)
 			}
 
 			if _, exists := configInstance.authenticatorMap[ruleConfig.AuthName]; !exists {
+
+				var auth authenticator.Authenticator
 
 				switch authConfig.AuthType {
 				case "static":
@@ -280,12 +295,14 @@ func LoadConfig(path string) (*Configuration, error) {
 						return nil, fmt.Errorf("%s authenticator '%s' must have a password set", authConfig.AuthType, ruleConfig.AuthName)
 					}
 
-					configInstance.authenticatorMap[ruleConfig.AuthName] = authenticator.NewStaticAuth(authConfig.Username, authConfig.Password)
+					auth = authenticator.NewStaticAuth(authConfig.Username, authConfig.Password)
 
 				default:
 					return nil, fmt.Errorf("authenticator '%s' has an invalid type: '%s'", ruleConfig.AuthName, authConfig.AuthType)
 				}
 
+				auth.SetName(ruleConfig.AuthName)
+				configInstance.authenticatorMap[ruleConfig.AuthName] = auth
 			}
 		}
 
@@ -294,27 +311,33 @@ func LoadConfig(path string) (*Configuration, error) {
 		} else {
 			fromIPNet, err = misc.ParseCIDR(ruleConfig.From)
 			if err != nil {
-				return nil, fmt.Errorf("auth rule from '%s' is not a valid IP address", ruleConfig.From)
+				return nil, fmt.Errorf("client rule from '%s' is not a valid IP address", ruleConfig.From)
 			}
 		}
 
 		if ruleConfig.To == "all" || ruleConfig.To == "any" {
 			toIPPort = nil
+		} else if ruleConfig.To == "socks5" {
+			toProxyType = PROXY_TYPE_SOCKS5
+			toIPPort = nil
+		} else if ruleConfig.To == "http" {
+			toProxyType = PROXY_TYPE_HTTP
+			toIPPort = nil
 		} else {
 
 			host, portStr, err := net.SplitHostPort(ruleConfig.To)
 			if err != nil {
-				return nil, fmt.Errorf("auth rule to '%s': not a valid IPv4:port or [IPv6]:port address", ruleConfig.To)
+				return nil, fmt.Errorf("client rule to '%s': not a valid IPv4:port or [IPv6]:port address", ruleConfig.To)
 			}
 
 			ip := net.ParseIP(host)
 			if ip == nil {
-				return nil, fmt.Errorf("auth rule to '%s': '%s' is not a valid IPv4 or IPv6 address", ruleConfig.To, ruleConfig.To)
+				return nil, fmt.Errorf("client rule to '%s': '%s' is not a valid IPv4 or IPv6 address", ruleConfig.To, ruleConfig.To)
 			}
 
 			port, err := strconv.Atoi(portStr)
 			if err != nil || port < 0 || port > 65535 {
-				return nil, fmt.Errorf("auth rule to '%s': '%s' is not a valid TCP port", ruleConfig.To, portStr)
+				return nil, fmt.Errorf("client rule to '%s': '%s' is not a valid TCP port", ruleConfig.To, portStr)
 			}
 
 			toIPPort = &net.TCPAddr{
@@ -323,10 +346,12 @@ func LoadConfig(path string) (*Configuration, error) {
 			}
 		}
 
-		configInstance.authRules = append(configInstance.authRules, authRule{
-			authName: ruleConfig.AuthName,
-			from:     fromIPNet,
-			to:       toIPPort,
+		configInstance.clientRules = append(configInstance.clientRules, clientRule{
+			allow:       ruleConfig.Type == "allow",
+			authName:    ruleConfig.AuthName,
+			from:        fromIPNet,
+			to:          toIPPort,
+			toProxyType: toProxyType,
 		})
 
 	}
@@ -336,7 +361,6 @@ func LoadConfig(path string) (*Configuration, error) {
 
 		var ruleConfig ProxyRulesConfig
 		var fromIPNet, toIPNet *net.IPNet
-		var allow bool
 		reStrRule := regexp.MustCompile("^(allow|deny)\\s+from\\s+(\\S+)\\s+(?:via\\s+(\\S+)\\s+)?to\\s+(\\S+)")
 
 		switch stringOrStruct := rule.(type) {
@@ -356,7 +380,9 @@ func LoadConfig(path string) (*Configuration, error) {
 			json.Unmarshal(tmpBytes, &ruleConfig)
 		}
 
-		allow = ruleConfig.Type == "allow"
+		if ruleConfig.Type != "allow" && ruleConfig.Type != "deny" {
+			return nil, fmt.Errorf("proxy rule type must be either 'allow' or 'deny', given: '%s'", ruleConfig.Type)
+		}
 
 		if ruleConfig.From == "all" || ruleConfig.From == "any" {
 			fromIPNet = nil
@@ -416,12 +442,12 @@ func LoadConfig(path string) (*Configuration, error) {
 		}
 
 		configInstance.proxyRules = append(configInstance.proxyRules, proxyRule{
-			allow:    allow,
-			from:     fromIPNet,
-			viaType:  viaType,
-			viaProxy: viaProxy,
-			viaAuth:  viaAuth,
-			to:       toIPNet,
+			allow:       ruleConfig.Type == "allow",
+			from:        fromIPNet,
+			viaType:     viaType,
+			viaProxy:    viaProxy,
+			viaAuthName: viaAuth,
+			to:          toIPNet,
 		})
 
 	}
@@ -499,70 +525,45 @@ func (ci *Configuration) addToListenMap(lc *ListenConfig) error {
 	return nil
 }
 
-// Client needs auth?
-func (ci *Configuration) IsClientAuthRequired(from net.IP, to *net.TCPAddr) (required bool, authenticator authenticator.Authenticator, authName string) {
-	for _, rule := range ci.authRules {
+// Checks whether we should accept an incoming TCP connection
+// If allowed == true, the returned authenticator (!= nil) must be checked
+func (ci *Configuration) IsClientConnectionAllowed(conn *proxyconn.ProxyConn) (allowed bool, authenticator authenticator.Authenticator) {
+	from := conn.GetClientAddr().IP
+	toProxyInternal := conn.GetInternalAddr()
+	toProxyType := conn.GetProxyType()
+	for _, rule := range ci.clientRules {
 		if rule.from == nil || rule.from.Contains(from) {
-			if rule.to == nil ||
-				(rule.to.IP.IsUnspecified() || rule.to.IP.Equal(to.IP)) && (rule.to.Port == 0 || rule.to.Port == to.Port) {
-				if rule.authName == AUTH_NONE {
-					return false, nil, ""
-				}
-				return true, ci.authenticatorMap[rule.authName], rule.authName
-			}
-		}
-	}
-	return false, nil, ""
-}
+			if rule.to == nil && rule.toProxyType == PROXY_TYPE_UNSPECIFIED || // "... to all"
+				rule.to == nil && rule.toProxyType != PROXY_TYPE_UNSPECIFIED && rule.toProxyType == toProxyType || // "... to socks5|http"
+				rule.to != nil && (rule.to.IP.IsUnspecified() || rule.to.IP.Equal(toProxyInternal.IP)) && (rule.to.Port == 0 || rule.to.Port == toProxyInternal.Port) { // "... to <ip>:<port>"
 
-// Checks whether we should accept and incoming TCP connection from the given IP
-func (ci *Configuration) IsClientConnectionAllowed(from net.IP, proxyInternal *net.TCPAddr) bool {
-	for _, rule := range ci.proxyRules {
-		if rule.viaType == VIA_TYPE_AUTH {
-			// no info on authentication in this stage; ignore rule
-			continue
-		}
-
-		if rule.viaType == VIA_TYPE_PROXY {
-			// rule does only apply for a given proxy
-			if !((rule.viaProxy.IP.IsUnspecified() || rule.viaProxy.IP.Equal(proxyInternal.IP)) && (rule.viaProxy.Port == 0 || rule.viaProxy.Port == proxyInternal.Port)) {
-				// does not match; ignore
-				continue
-			}
-		}
-
-		if rule.from == nil || rule.from.Contains(from) {
-
-			if rule.allow {
-				// the client is at least allowed to connect to some remote destination
-				return true
-
-			} else {
-				if rule.to == nil {
-					// all connections to any remote destination are denied, so we disallow that client completely
-					return false
+				if rule.allow {
+					if rule.authName == AUTH_NONE {
+						return true, nil
+					}
+					return true, ci.authenticatorMap[rule.authName]
 				} else {
-					// the client is not allowed to connect to some remote destination but we don't know the
-					// remote destination at this stage yet. skip the rule.
-					continue
+					break
 				}
-
 			}
 		}
 	}
-
-	return false
+	return false, nil
 }
 
-// Checks whether we should accept a proxy request from IP <from> to IP <to>
-func (ci *Configuration) IsProxyConnectionAllowed(from net.IP, proxyInternal *net.TCPAddr, to net.IP, authed bool, authName string) bool {
+// Checks whether we should accept a proxy request from <fromIP> via <auth|internalIP> to <toIP>
+func (ci *Configuration) IsProxyConnectionAllowed(conn *proxyconn.ProxyConn, to net.IP) bool {
+	from := conn.GetClientAddr().IP
+	authenticated, authenticator := conn.IsSuccessfullyAuthenticated()
+	proxyInternal := conn.GetInternalAddr()
+
 	for _, rule := range ci.proxyRules {
 		if rule.viaType == VIA_TYPE_PROXY {
 			if !((rule.viaProxy.IP.IsUnspecified() || rule.viaProxy.IP.Equal(proxyInternal.IP)) && (rule.viaProxy.Port == 0 || rule.viaProxy.Port == proxyInternal.Port)) {
 				continue
 			}
 		} else if rule.viaType == VIA_TYPE_AUTH {
-			if !authed && rule.viaAuth != AUTH_NONE || authed && rule.viaAuth != authName {
+			if !authenticated && rule.viaAuthName != AUTH_NONE || authenticated && rule.viaAuthName != authenticator.GetName() {
 				continue
 			}
 		}
@@ -575,4 +576,8 @@ func (ci *Configuration) IsProxyConnectionAllowed(from net.IP, proxyInternal *ne
 	}
 
 	return false
+}
+
+func GetForServer(s *tcpserver.Server) *Configuration {
+	return (*s.GetContext()).Value(proxyconn.CtxKey("config")).(*Configuration)
 }

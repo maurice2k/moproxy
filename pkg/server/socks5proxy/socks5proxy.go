@@ -9,14 +9,14 @@ import (
 	"moproxy/pkg/misc"
 	"moproxy/pkg/server/stats"
 
-	"github.com/maurice2k/tcpserver"
-
 	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
 	"net"
 	"time"
+
+	"github.com/maurice2k/tcpserver"
 )
 
 const (
@@ -178,7 +178,7 @@ func validateVersion(conn *socks5ClientConn) bool {
 }
 
 // authenticate request
-func authenticate(conn *socks5ClientConn) bool {
+func authenticate(conn *socks5ClientConn, authenticator authenticator.Authenticator) bool {
 	/*
 		   The client connects to the server, and sends a version
 		   identifier/method selection message:
@@ -250,9 +250,10 @@ func authenticate(conn *socks5ClientConn) bool {
 		return false
 	}
 
-	authRequired, authenticator, authName := proxyconn.IsClientAuthRequired(conn.ProxyConn)
+	authRequired := authenticator != nil
+
 	if authRequired {
-		log.Debug().Msgf("Authentication required using authenticator '%s'", authName)
+		log.Debug().Msgf("Authentication required using authenticator '%s'", authenticator.GetName())
 	}
 
 	var validAuthMethod uint8 = AUTH_NO_ACCEPTABLE_METHOD
@@ -274,7 +275,7 @@ func authenticate(conn *socks5ClientConn) bool {
 	if authRequired && validAuthMethod == AUTH_USERNAME_PASSWORD {
 		authResult := authenticateUsernamePassword(conn, authenticator)
 		if authResult == true {
-			conn.SetSuccessfullyAuthenticated(authName)
+			conn.SetSuccessfullyAuthenticated(authenticator)
 		}
 		return authResult
 	}
@@ -493,25 +494,28 @@ func readRequest(conn *socks5ClientConn) *Request {
 }
 
 func newSocks5Conn(conn *tcpserver.Connection) *socks5ClientConn {
-	return &socks5ClientConn{ProxyConn: proxyconn.NewProxyConn(conn)}
+	return &socks5ClientConn{ProxyConn: proxyconn.NewProxyConn(conn, config.PROXY_TYPE_SOCKS5)}
 }
 
 // TCP connection handler function
 func HandlerFunc(conn *tcpserver.Connection) {
 	s5Conn := newSocks5Conn(conn)
 
-	if !proxyconn.IsClientConnectionAllowed(s5Conn.ProxyConn) {
-		s5Conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset", conn.GetClientAddr().IP)
+	conf := config.GetForServer(conn.GetServer())
+	allowed, authenticator := conf.IsClientConnectionAllowed(s5Conn.ProxyConn)
+
+	if !allowed {
+		s5Conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset (client rules)", conn.GetClientAddr().IP)
 		return
 	}
 
-	tcpTimeouts := s5Conn.GetConfig().GetTcpTimeouts()
+	tcpTimeouts := conf.GetTcpTimeouts()
 	if tcpTimeouts.Negotiate > 0 {
 		ts := time.Now().Add(time.Duration(tcpTimeouts.Negotiate))
 		s5Conn.SetDeadline(ts)
 	}
 
-	if !authenticate(s5Conn) {
+	if !authenticate(s5Conn, authenticator) {
 		return
 	}
 

@@ -1,15 +1,16 @@
 package internal
 
 import (
+	"moproxy/internal/proxyconn"
+	"moproxy/pkg/config"
+	"moproxy/pkg/misc"
+
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"moproxy/internal/proxyconn"
-	"moproxy/pkg/misc"
 )
 
 // error type consts; these are numerically identical to SOCKS5 reply codes
@@ -63,12 +64,13 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 		network = "tcp6"
 	}
 
-	tcpTimeouts := clientConn.GetConfig().GetTcpTimeouts()
+	conf := config.GetForServer(clientConn.GetServer())
+	tcpTimeouts := conf.GetTcpTimeouts()
 	remoteDialer := net.Dialer{
 		LocalAddr: externalAddr,
 	}
 
-	if clientConn.GetConfig().GetTuningConfig().TFOOutgoing {
+	if conf.GetTuningConfig().TFOOutgoing {
 		remoteDialer.Control = applyRemoteConnSocketOptions(log)
 	}
 
@@ -77,8 +79,8 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 		remoteDialer.Deadline = ts
 	}
 
-	if !proxyconn.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
-		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset"), Type: ERR_NOT_ALLOWED_BY_RULESET, Err: nil}
+	if !conf.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
+		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset (proxy rules)"), Type: ERR_NOT_ALLOWED_BY_RULESET, Err: nil}
 	}
 
 	remoteConn, err := remoteDialer.Dial(network, remoteAddr.TCPAddr.String())

@@ -5,6 +5,7 @@ import (
 )
 
 type staticAuth struct {
+	basicAuth
 	username string
 	password string
 }
