@@ -77,6 +77,6 @@ install-systemd:
 	$(info = Installing systemd service)
 
 	$Q cp -ar $(INSTALL_PATH)/configs/moproxy.service.dist $(INSTALL_PATH)/configs/moproxy.service
-	$Q ln -s $(INSTALL_PATH)/configs/moproxy.service /etc/systemd/system/moproxy.service
+	$Q ln -sf $(INSTALL_PATH)/configs/moproxy.service /etc/systemd/system/moproxy.service
 	$Q systemctl enable moproxy.service
 

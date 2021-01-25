@@ -20,8 +20,8 @@ import (
 var VERSION string = "dev"
 
 var mainOpts struct {
-	Config  string `short:"c" long:"config" description:"Config file" value-name:"FILE" default:"./configs/moproxy.conf"`
-	LogFile string `short:"l" long:"logfile" description:"Log file" value-name:"FILE" default:"./logs/moproxy.log"`
+	Config  string `short:"c" long:"config" description:"Config file" value-name:"FILE" default:"../configs/moproxy.conf"`
+	LogFile string `short:"l" long:"logfile" description:"Log file" value-name:"FILE" default:"../logs/moproxy.log"`
 	Pidfile string `short:"p" long:"pidfile" description:"Pid file" value-name:"FILE"`
 	Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	Version bool   `long:"version" description:"Show moproxy version"`
