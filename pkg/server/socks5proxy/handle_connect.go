@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package socks5proxy
 
 import (
@@ -16,7 +17,7 @@ func handleConnectCommand(conn *socks5ClientConn, request *Request) {
 			sendReply(conn, request, rcErr.Type)
 		} else {
 			// should not happen
-			sendReply(conn, request, REP_HOST_UNREACHABLE)
+			sendReply(conn, request, RepHostUnreachable)
 		}
 		return
 	}
@@ -25,13 +26,13 @@ func handleConnectCommand(conn *socks5ClientConn, request *Request) {
 
 	request.LocalAddr = remoteTCPConn.LocalAddr().(*net.TCPAddr)
 
-	sendReply(conn, request, REP_SUCCESS)
+	sendReply(conn, request, RepSuccess)
 
 	// Start proxying
 	var bytesWritten, bytesRead int64
 	errCh := make(chan error, 2)
-	go internal.ProxyTCP(conn.Connection.Conn.(*net.TCPConn), remoteTCPConn, &bytesRead, errCh)
-	go internal.ProxyTCP(remoteTCPConn, conn.Connection.Conn.(*net.TCPConn), &bytesWritten, errCh)
+	go internal.ProxyTCP(conn.TCPConn.Conn, remoteTCPConn, &bytesRead, errCh)
+	go internal.ProxyTCP(remoteTCPConn, conn.TCPConn.Conn, &bytesWritten, errCh)
 
 	// Wait
 	for i := 0; i < 2; i++ {

@@ -51,7 +51,7 @@ ifneq ($(TAG_NAME),)
 endif
 
 ### Compiler flags
-LDFLAGS = -ldflags '-X "main.VERSION=$(VERSION)" -s -w'
+LDFLAGS = -ldflags '-X "main.VERSION=$(VERSION)" -X "main.BUILDDIR=$(BASE)" -s -w'
 
 ### Targets
 .DEFAULT_GOAL := build

@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package httpproxy
 
 import (
@@ -15,6 +16,11 @@ import (
 )
 
 func handleGenericHttpMethod(conn *httpClientConn) {
+	conn.request.RequestURI = ""
+	// always set a user agent (even if blank) to prevent default golang user agent to be added
+	conn.request.Header.Set("User-Agent", conn.request.Header.Get("User-Agent"))
+	conn.request.Header.Del("Proxy-Authorization")
+
 	remoteAddr := &proxyconn.RemoteAddr{
 		TCPAddr:    new(net.TCPAddr),
 	}
@@ -51,11 +57,11 @@ func handleGenericHttpMethod(conn *httpClientConn) {
 	if err != nil {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
 			switch rcErr.Type {
-			case internal.ERR_NOT_ALLOWED_BY_RULESET:
+			case internal.ErrNotAllowedByRuleset:
 				sendReply(conn, http.StatusForbidden, "", err)
-			case internal.ERR_NET_UNREACHABLE:
-			case internal.ERR_HOST_UNREACHABLE:
-			case internal.ERR_CONN_REFUSED:
+			case internal.ErrNetUnreachable:
+			case internal.ErrHostUnreachable:
+			case internal.ErrConnRefused:
 			default:
 				sendReply(conn, http.StatusBadGateway, "", err)
 			}
@@ -68,13 +74,14 @@ func handleGenericHttpMethod(conn *httpClientConn) {
 
 	defer remoteTCPConn.Close()
 
-	// Start proxying
-
+	// Write the request to remote
 	conn.request.Write(remoteTCPConn)
 
+	// Read the response from remote ...
 	br := bufio.NewReader(remoteTCPConn)
 	response, err := http.ReadResponse(br, conn.request)
 
+	// ... and write it to the client
 	cw := misc.NewCountWriter(conn)
 	response.Write(cw)
 

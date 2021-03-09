@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package httpproxy
 
 import (
@@ -74,20 +75,13 @@ func sendReply(conn *httpClientConn, statusCode int, statusText string, err erro
 	conn.AddWritten(int64(n))
 }
 
-func newHttpConn(conn *tcpserver.Connection) *httpClientConn {
-	return &httpClientConn{ProxyConn: proxyconn.NewProxyConn(conn, config.PROXY_TYPE_HTTP)}
-}
+// Connect handles a new TCP connection
+func Connect(conn *httpClientConn) {
+	log := conn.Log
 
+	conf := config.GetForServer(conn.GetServer())
 
-// TCP connection handler function
-func HandlerFunc(conn *tcpserver.Connection) {
-	httpConn := newHttpConn(conn)
-
-	log := httpConn.Log
-
-	conf := config.GetForServer(httpConn.GetServer())
-
-	allowed, authenticator := conf.IsClientConnectionAllowed(httpConn.ProxyConn)
+	allowed, authenticator := conf.IsClientConnectionAllowed(conn.ProxyConn)
 	// We could have dropped the connection right away if not allowed, but
 	// this seems to confuse some clients. We wait for the HTTP request and
 	// send a proper HTTP response... see below.
@@ -96,7 +90,7 @@ func HandlerFunc(conn *tcpserver.Connection) {
 	httpTimeouts := conf.GetHttpTimeouts()
 
 	br := brPool.Get().(*bufio.Reader)
-	cr := misc.NewCountReader(httpConn)
+	cr := misc.NewCountReader(conn)
 	br.Reset(cr)
 
 	reHttpPrefix, _ := regexp.Compile("^https?://")
@@ -106,25 +100,25 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 		if tcpTimeouts.Negotiate > 0 {
 			ts := time.Now().Add(time.Duration(tcpTimeouts.Negotiate))
-			httpConn.SetDeadline(ts)
+			_ = conn.SetDeadline(ts)
 		}
-		httpConn.request, err = http.ReadRequest(br)
-		httpConn.AddRead(int64(cr.GetCountAndReset()))
+		conn.request, err = http.ReadRequest(br)
+		conn.AddRead(int64(cr.GetCountAndReset()))
 
 		if err != nil {
 			log.Debug().Msgf("http.ReadRequest failed: %s", err)
-			sendReply(httpConn, http.StatusBadRequest, "", err)
+			sendReply(conn, http.StatusBadRequest, "", err)
 			break
 		}
 
-		connectRequest := httpConn.request.Method == "CONNECT"
+		connectRequest := conn.request.Method == "CONNECT"
 
-		log = log.With().Str("remote", httpConn.request.RequestURI).Logger()
-		httpConn.Log = log
+		log = log.With().Str("remote", conn.request.RequestURI).Logger()
+		conn.Log = log
 
 		if !allowed {
 			log.Debug().Msgf("Connection from %s not allowed by ruleset (client rules)", conn.GetClientAddr().IP)
-			sendReply(httpConn, http.StatusForbidden, "", nil)
+			sendReply(conn, http.StatusForbidden, "", nil)
 			return
 		}
 
@@ -132,54 +126,50 @@ func HandlerFunc(conn *tcpserver.Connection) {
 
 			log.Debug().Msgf("Authentication required using authenticator '%s'", authenticator.GetName())
 
-			proxyAuth := httpConn.request.Header.Get("Proxy-Authorization")
+			proxyAuth := conn.request.Header.Get("Proxy-Authorization")
 			username, password, ok := parseBasicAuth(proxyAuth)
 
 			if ok {
-				ok = authenticator.Authenticate(username, password, httpConn.GetClientAddr(), httpConn.GetInternalAddr())
+				ok = authenticator.Authenticate(username, password, conn.GetClientAddr(), conn.GetInternalAddr())
 			}
 
 			if !ok {
-				sendReply(httpConn, http.StatusProxyAuthRequired, "", err)
+				sendReply(conn, http.StatusProxyAuthRequired, "", err)
 				break
 			}
 
-			httpConn.SetSuccessfullyAuthenticated(authenticator)
+			conn.SetSuccessfullyAuthenticated(authenticator)
 		}
 
 		if connectRequest {
-			log.Debug().Msgf("CONNECT request for %s", httpConn.request.RequestURI)
+			log.Debug().Msgf("CONNECT request for %s", conn.request.RequestURI)
 
-			handleConnectMethod(httpConn)
+			handleConnectMethod(conn)
 			break
 
 		} else {
 
-			if !reHttpPrefix.MatchString(httpConn.request.RequestURI) {
-				sendReply(httpConn, 400, "", nil)
+			if !reHttpPrefix.MatchString(conn.request.RequestURI) {
+				sendReply(conn, 400, "", nil)
 				break
 			}
 
-			log.Debug().Msgf("HTTP request for %s", httpConn.request.RequestURI)
+			log.Debug().Msgf("HTTP request for %s", conn.request.RequestURI)
 
-			httpConn.request.RequestURI = ""
-			// always set a user agent (even if blank) to prevent default golang user agent to be added
-			httpConn.request.Header.Set("User-Agent", httpConn.request.Header.Get("User-Agent"))
-			httpConn.request.Header.Del("Proxy-Authorization")
+			handleGenericHttpMethod(conn)
 
-			handleGenericHttpMethod(httpConn)
+			log.Debug().Msg("DONE")
 
 			ts := time.Now().Add(time.Duration(httpTimeouts.KeepAlive))
-			httpConn.SetDeadline(ts)
+			_ = conn.SetDeadline(ts)
 			_, err = br.Peek(1)
 			if misc.IsTimeoutError(err) {
-				log.Debug().Msgf("Idle timeout for proxy connection from %s reached", httpConn.GetClientAddr())
+				log.Debug().Msgf("Idle timeout for proxy connection from %s reached", conn.GetClientAddr())
 				break
 			}
 		}
 	}
 	brPool.Put(br)
-
 }
 
 func NewServer(listenAddr string, externalIp string, configInstance *config.Configuration) *Server {
@@ -193,11 +183,23 @@ func NewServer(listenAddr string, externalIp string, configInstance *config.Conf
 	server.SetContext(&ctx)
 
 	s := &Server{server}
-	s.SetRequestHandler(HandlerFunc)
+	s.SetConnectionCreator(func() tcpserver.Connection {
+		return &httpClientConn{ProxyConn: proxyconn.NewProxyConn(&tcpserver.TCPConn{}, config.ProxyTypeHttp)}
+	})
+	s.SetRequestHandler(func(tcpserverConn tcpserver.Connection) {
+		Connect(tcpserverConn.(*httpClientConn))
+	})
 	return s
 }
 
-// copied from https://golang.org/src/net/http/request.go#L935
+// Reset is called from tcpserver to re-use the httpClientConn instance
+func (c *httpClientConn) Reset(netConn net.Conn) {
+	c.ProxyConn.Reset(netConn)
+	c.request = nil
+	c.remoteAddr = nil
+}
+
+// copied from https://golang.org/src/net/http/request.go#L945
 func parseBasicAuth(auth string) (username, password string, ok bool) {
 	const prefix = "Basic "
 	// Case insensitive prefix match. See Issue 22736.

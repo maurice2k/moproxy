@@ -17,6 +17,13 @@ It uses *[tcpserver](https://github.com/maurice2k/tcpserver)* as a basis.
 * Config reloading (using SIGHUP)
 
 
+## Development/Testing
+
+Run moproxy using from repository's base directory
+```
+# go run bin/moproxy.go -vvvv
+```
+
 ## Installation
 
 Installing moproxy is pretty simple using `make`. It only requires Go 1.13 (or better) to be installed on your system. 
@@ -36,6 +43,7 @@ The config file is in JSON format with documentation and examples as comments.
 * Logging to SQLite
 * JSON status page
 * Support for more flexible authenticators (squid style)
+* Maybe support [SOCKSv6](https://tools.ietf.org/html/draft-olteanu-intarea-socks-6-11)
 
 
 ## License

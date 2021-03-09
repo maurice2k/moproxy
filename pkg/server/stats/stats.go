@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package stats
 
 //// EARLY DRAFT ////

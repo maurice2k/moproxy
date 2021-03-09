@@ -1,4 +1,4 @@
-package authenticator
+package auth
 
 import (
 	"net"
@@ -17,6 +17,7 @@ func NewStaticAuth(username, password string) Authenticator {
 	}
 }
 
+//goland:noinspection GoUnusedParameter
 func (auth *staticAuth) Authenticate(username, password string, clientAddr, serverAddr *net.TCPAddr) bool {
 	return auth.username == username && auth.password == password
 }

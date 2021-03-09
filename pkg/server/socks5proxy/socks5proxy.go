@@ -1,10 +1,11 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package socks5proxy
 
 import (
 	"moproxy/internal/proxyconn"
-	"moproxy/pkg/authenticator"
+	"moproxy/pkg/auth"
 	"moproxy/pkg/config"
 	"moproxy/pkg/misc"
 	"moproxy/pkg/server/stats"
@@ -20,42 +21,41 @@ import (
 )
 
 const (
-	SOCKS5_VERSION = 0x05
+	Socks5Version = 0x05
 )
 
 // Command consts used in request
 const (
-	CMD_CONNECT       = 0x01
-	CMD_BIND          = 0x02
-	CMD_UDP_ASSOCIATE = 0x03 // not implemented
+	CmdConnect        = 0x01
+	CmdBind           = 0x02
 )
 
 // Address types used in requests and replies
 const (
-	ATYP_IP_V4      = 0x01
-	ATYP_DOMAINNAME = 0x03
-	ATYP_IP_V6      = 0x04
+	AtypIpV4       = 0x01
+	AtypDomainname = 0x03
+	AtypIpV6       = 0x04
 )
 
 // Authentication types
 const (
-	AUTH_NO_AUTH              = 0x00
-	AUTH_GSSAPI               = 0x01 // not implemented
-	AUTH_USERNAME_PASSWORD    = 0x02
-	AUTH_NO_ACCEPTABLE_METHOD = 0xff
+	AuthNoAuth             = 0x00
+	AuthGssapi             = 0x01 // not implemented
+	AuthUsernamePassword   = 0x02
+	AuthNoAcceptableMethod = 0xff
 )
 
 // Reply codes used in sendReply
 const (
-	REP_SUCCESS                     = 0x00
-	REP_GENERAL_FAILURE             = 0x01
-	REP_CONN_NOT_ALLOWED_BY_RULESET = 0x02
-	REP_NET_UNREACHABLE             = 0x03
-	REP_HOST_UNREACHABLE            = 0x04
-	REP_CONN_REFUSED                = 0x05
-	REP_TTL_EXPIRED                 = 0x06 // not used
-	REP_COMMAND_NOT_SUPPORTED       = 0x07
-	REP_ADDRESS_TYPE_NOT_SUPPORTED  = 0x08 // handled by direct connection termination
+	RepSuccess                 = 0x00
+	RepGeneralFailure          = 0x01
+	RepConnNotAllowedByRuleset = 0x02
+	RepNetUnreachable          = 0x03
+	RepHostUnreachable         = 0x04
+	RepConnRefused             = 0x05
+	RepTtlExpired              = 0x06 // not used
+	RepCommandNotSupported     = 0x07
+	RepAddressTypeNotSupported = 0x08 // handled by direct connection termination
 )
 
 type Request struct {
@@ -130,25 +130,25 @@ func sendReply(conn *socks5ClientConn, request *Request, replyCode byte) {
 	}
 
 	var wr bytes.Buffer
-	wr.Write([]byte{SOCKS5_VERSION, replyCode, 0x00})
+	wr.Write([]byte{Socks5Version, replyCode, 0x00})
 
 	if misc.IsUnspecifiedIP(boundAddr.IP) && request.RemoteAddr.DomainName != "" {
 		// kind of a special case to get cURLs error message more helpful
-		wr.WriteByte(ATYP_DOMAINNAME)
+		wr.WriteByte(AtypDomainname)
 		wr.WriteByte(byte(len(request.RemoteAddr.DomainName)))
 		wr.Write([]byte(request.RemoteAddr.DomainName))
 		boundAddr.Port = request.RemoteAddr.Port
 
 	} else if ipv4 := boundAddr.IP.To4(); ipv4 != nil {
-		wr.WriteByte(ATYP_IP_V4)
+		wr.WriteByte(AtypIpV4)
 		wr.Write(ipv4)
 
 	} else {
-		wr.WriteByte(ATYP_IP_V6)
+		wr.WriteByte(AtypIpV6)
 		wr.Write(boundAddr.IP[0:16])
 	}
 
-	binary.Write(&wr, binary.BigEndian, uint16(boundAddr.Port))
+	_ = binary.Write(&wr, binary.BigEndian, uint16(boundAddr.Port))
 
 	n, _ := conn.Write(wr.Bytes())
 	conn.AddWritten(int64(n))
@@ -170,7 +170,7 @@ func validateVersion(conn *socks5ClientConn) bool {
 		return false
 	}
 
-	if ver[0] != SOCKS5_VERSION {
+	if ver[0] != Socks5Version {
 		log.Debug().Msgf("Unsupported SOCKS version %d (but only 5 is supported)", ver[0])
 		return false
 	}
@@ -178,7 +178,7 @@ func validateVersion(conn *socks5ClientConn) bool {
 }
 
 // authenticate request
-func authenticate(conn *socks5ClientConn, authenticator authenticator.Authenticator) bool {
+func authenticate(conn *socks5ClientConn, authenticator auth.Authenticator) bool {
 	/*
 		   The client connects to the server, and sends a version
 		   identifier/method selection message:
@@ -256,23 +256,23 @@ func authenticate(conn *socks5ClientConn, authenticator authenticator.Authentica
 		log.Debug().Msgf("Authentication required using authenticator '%s'", authenticator.GetName())
 	}
 
-	var validAuthMethod uint8 = AUTH_NO_ACCEPTABLE_METHOD
+	var validAuthMethod uint8 = AuthNoAcceptableMethod
 	for i := 0; i < n; i++ {
-		if authRequired && methods[i] == AUTH_USERNAME_PASSWORD {
+		if authRequired && methods[i] == AuthUsernamePassword {
 			validAuthMethod = methods[i]
 			break
 		}
 
-		if !authRequired && methods[i] == AUTH_NO_AUTH {
+		if !authRequired && methods[i] == AuthNoAuth {
 			validAuthMethod = methods[i]
 			break
 		}
 	}
 
-	n, _ = conn.Write([]uint8{SOCKS5_VERSION, validAuthMethod})
+	n, _ = conn.Write([]uint8{Socks5Version, validAuthMethod})
 	conn.AddWritten(int64(n))
 
-	if authRequired && validAuthMethod == AUTH_USERNAME_PASSWORD {
+	if authRequired && validAuthMethod == AuthUsernamePassword {
 		authResult := authenticateUsernamePassword(conn, authenticator)
 		if authResult == true {
 			conn.SetSuccessfullyAuthenticated(authenticator)
@@ -280,11 +280,11 @@ func authenticate(conn *socks5ClientConn, authenticator authenticator.Authentica
 		return authResult
 	}
 
-	return validAuthMethod == AUTH_NO_AUTH
+	return validAuthMethod == AuthNoAuth
 }
 
 // Authenticate with username and password as defined in RFC 1929
-func authenticateUsernamePassword(conn *socks5ClientConn, authenticator authenticator.Authenticator) bool {
+func authenticateUsernamePassword(conn *socks5ClientConn, authenticator auth.Authenticator) bool {
 	/* https://tools.ietf.org/html/rfc1929#section-2
 
 	2.  Initial negotiation
@@ -428,7 +428,7 @@ func readRequest(conn *socks5ClientConn) *Request {
 	}
 
 	addressType := reqHeader[2]
-	if addressType == ATYP_IP_V4 {
+	if addressType == AtypIpV4 {
 
 		ip := make([]uint8, net.IPv4len)
 		n, err = io.ReadFull(conn, ip)
@@ -438,9 +438,9 @@ func readRequest(conn *socks5ClientConn) *Request {
 			log.Debug().Msgf("Unable to read remote IPv4 address (4 bytes)")
 			return nil
 		}
-		request.RemoteAddr.IP = net.IP(ip)
+		request.RemoteAddr.IP = ip
 
-	} else if addressType == ATYP_IP_V6 {
+	} else if addressType == AtypIpV6 {
 
 		ip := make([]uint8, net.IPv6len)
 		n, err = io.ReadFull(conn, ip)
@@ -450,9 +450,9 @@ func readRequest(conn *socks5ClientConn) *Request {
 			log.Debug().Msgf("Unable to read remote IPv6 address (16 bytes)")
 			return nil
 		}
-		request.RemoteAddr.IP = net.IP(ip)
+		request.RemoteAddr.IP = ip
 
-	} else if addressType == ATYP_DOMAINNAME {
+	} else if addressType == AtypDomainname {
 
 		addrLen := []uint8{0}
 		n, err = io.ReadFull(conn, addrLen)
@@ -493,59 +493,52 @@ func readRequest(conn *socks5ClientConn) *Request {
 	return request
 }
 
-func newSocks5Conn(conn *tcpserver.Connection) *socks5ClientConn {
-	return &socks5ClientConn{ProxyConn: proxyconn.NewProxyConn(conn, config.PROXY_TYPE_SOCKS5)}
-}
-
-// TCP connection handler function
-func HandlerFunc(conn *tcpserver.Connection) {
-	s5Conn := newSocks5Conn(conn)
-
+func Connect(conn *socks5ClientConn) {
 	conf := config.GetForServer(conn.GetServer())
-	allowed, authenticator := conf.IsClientConnectionAllowed(s5Conn.ProxyConn)
+	allowed, authenticator := conf.IsClientConnectionAllowed(conn.ProxyConn)
 
 	if !allowed {
-		s5Conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset (client rules)", conn.GetClientAddr().IP)
+		conn.Log.Debug().Msgf("Connection from %s not allowed by ruleset (client rules)", conn.GetClientAddr().IP)
 		return
 	}
 
 	tcpTimeouts := conf.GetTcpTimeouts()
 	if tcpTimeouts.Negotiate > 0 {
 		ts := time.Now().Add(time.Duration(tcpTimeouts.Negotiate))
-		s5Conn.SetDeadline(ts)
+		_ = conn.SetDeadline(ts)
 	}
 
-	if !authenticate(s5Conn, authenticator) {
+	if !authenticate(conn, authenticator) {
 		return
 	}
 
-	request := readRequest(s5Conn)
+	request := readRequest(conn)
 	if request == nil {
 		return
 	}
 
-	s5Conn.request = request
+	conn.request = request
 
 	if tcpTimeouts.Idle > 0 {
 		ts := time.Now().Add(time.Duration(tcpTimeouts.Idle))
-		conn.SetDeadline(ts)
+		_ = conn.SetDeadline(ts)
 	}
 
 	switch request.Command {
-	case CMD_CONNECT:
-		handleConnectCommand(s5Conn, request)
+	case CmdConnect:
+		handleConnectCommand(conn, request)
 
-	case CMD_BIND:
-		handleBindCommand(s5Conn, request)
+	case CmdBind:
+		handleBindCommand(conn, request)
 
 	default:
-		sendReply(s5Conn, request, REP_COMMAND_NOT_SUPPORTED)
-		s5Conn.Log.Debug().Msgf("Unsupported command %d (only 1/CONNECT and 2/BIND are supported)", request.Command)
+		sendReply(conn, request, RepCommandNotSupported)
+		conn.Log.Debug().Msgf("Unsupported command %d (only 1/CONNECT and 2/BIND are supported)", request.Command)
 	}
 
-	read, written := s5Conn.GetBytes()
-	s5Conn.Log.Debug().Msgf("Client connection finished with status %d, written: %d, read: %d", s5Conn.lastReplyCode, written, read)
-	stats.PushEvent(s5Conn.CreateStatsEvent())
+	read, written := conn.GetBytes()
+	conn.Log.Debug().Msgf("Client connection finished with status %d, written: %d, read: %d", conn.lastReplyCode, written, read)
+	stats.PushEvent(conn.CreateStatsEvent())
 }
 
 type Server struct {
@@ -563,7 +556,12 @@ func NewServer(listenAddr string, externalIp string, configInstance *config.Conf
 	server.SetContext(&ctx)
 
 	s := &Server{server}
-	s.SetRequestHandler(HandlerFunc)
+	s.SetConnectionCreator(func() tcpserver.Connection {
+		return &socks5ClientConn{ProxyConn: proxyconn.NewProxyConn(&tcpserver.TCPConn{}, config.ProxyTypeSocks5)}
+	})
+	s.SetRequestHandler(func(tcpserverConn tcpserver.Connection) {
+		Connect(tcpserverConn.(*socks5ClientConn))
+	})
 	return s
 }
 
@@ -573,7 +571,7 @@ func getExternalBindAddr(conn *socks5ClientConn) *net.TCPAddr {
 	return (*ctx).Value(proxyconn.CtxKey("externalAddr")).(*net.TCPAddr)
 }
 
-// Creates a statistics event
+// CreateStatsEvent returns a newly created a statistics event
 func (c *socks5ClientConn) CreateStatsEvent() stats.Event {
 	read, written := c.GetBytes()
 	event := stats.Event{
@@ -593,3 +591,11 @@ func (c *socks5ClientConn) CreateStatsEvent() stats.Event {
 
 	return event
 }
+
+// Reset is called from tcpserver to re-use the socks5ClientConn instance
+func (c *socks5ClientConn) Reset(netConn net.Conn) {
+	c.ProxyConn.Reset(netConn)
+	c.request = nil
+	c.lastReplyCode = 0
+}
+

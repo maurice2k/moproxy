@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package socks5proxy
 
 import (
@@ -31,7 +32,7 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 		ip, err := net.ResolveIPAddr(network, request.RemoteAddr.DomainName)
 		if err != nil {
 			log.Debug().Msgf("Unable to resolve %s address of '%s'", network, request.RemoteAddr.DomainName)
-			sendReply(conn, request, REP_HOST_UNREACHABLE)
+			sendReply(conn, request, RepHostUnreachable)
 			return
 		}
 		request.RemoteAddr.IP = ip.IP
@@ -42,26 +43,26 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 
 	if !conf.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
 		log.Debug().Msgf("SOCKS 'BIND' not allowed by ruleset (proxy rules)")
-		sendReply(conn, request, REP_CONN_NOT_ALLOWED_BY_RULESET)
+		sendReply(conn, request, RepConnNotAllowedByRuleset)
 		return
 	}
 
 	bindServer, _ := tcpserver.NewServer(bindAddr.String())
 	bindServer.SetMaxAcceptConnections(1)
-	bindServer.SetRequestHandler(func (incomingConn *tcpserver.Connection) {
+	bindServer.SetRequestHandler(func (incomingConn tcpserver.Connection) {
 		if tcpTimeouts.Idle > 0 {
 			ts := time.Now().Add(time.Duration(tcpTimeouts.Idle))
 			incomingConn.SetDeadline(ts)
 		}
 
 		request.LocalAddr = incomingConn.GetClientAddr()
-		sendReply(conn, request, REP_SUCCESS)
+		sendReply(conn, request, RepSuccess)
 
 		// Start proxying
 		var bytesWritten, bytesRead int64
 		errCh := make(chan error, 2)
-		go internal.ProxyTCP(incomingConn.Conn.(*net.TCPConn), conn.Conn.(*net.TCPConn), &bytesWritten, errCh)
-		go internal.ProxyTCP(conn.Conn.(*net.TCPConn), incomingConn.Conn.(*net.TCPConn), &bytesRead, errCh)
+		go internal.ProxyTCP(incomingConn.(*tcpserver.TCPConn).Conn, conn.Conn, &bytesWritten, errCh)
+		go internal.ProxyTCP(conn.Conn, incomingConn.(*tcpserver.TCPConn).Conn, &bytesRead, errCh)
 
 		// Wait
 		for i := 0; i < 2; i++ {
@@ -78,17 +79,17 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 	err := bindServer.Listen()
 	if err != nil {
 		log.Warn().Msgf("Unable to start listening while handling BIND command: %s", err.Error())
-		sendReply(conn, request, REP_GENERAL_FAILURE)
+		sendReply(conn, request, RepGeneralFailure)
 		return
 	}
 
 	request.LocalAddr = bindServer.GetListenAddr()
-	sendReply(conn, request, REP_SUCCESS)
+	sendReply(conn, request, RepSuccess)
 
 	err = bindServer.Serve()
 	if err != nil {
 		log.Warn().Msgf("Error while accepting connections in BIND command: %s", err.Error())
-		sendReply(conn, request, REP_GENERAL_FAILURE)
+		sendReply(conn, request, RepGeneralFailure)
 		return
 	}
 

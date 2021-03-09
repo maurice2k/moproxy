@@ -1,28 +1,29 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package proxyconn
 
 import (
-	"moproxy/pkg/authenticator"
+	"github.com/rs/zerolog/log"
+	"moproxy/pkg/auth"
 
 	"net"
 
 	"github.com/maurice2k/tcpserver"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 type CtxKey string
 
 // ProxyConn describes the connection between client and proxy server
 type ProxyConn struct {
-	*tcpserver.Connection
-	externalAddr      *net.TCPAddr
-	Log               zerolog.Logger
-	read, written     int64
-	authenticated     bool
-	authenticator     authenticator.Authenticator
-	proxyType int
+	*tcpserver.TCPConn
+	externalAddr  *net.TCPAddr
+	Log           zerolog.Logger
+	read, written int64
+	authenticated bool
+	authenticator auth.Authenticator
+	proxyType     int
 }
 
 type RemoteAddr struct {
@@ -37,13 +38,20 @@ func (r RemoteAddr) String() string {
 	return r.TCPAddr.String()
 }
 
-func NewProxyConn(conn *tcpserver.Connection, proxyType int) *ProxyConn {
+func NewProxyConn(conn *tcpserver.TCPConn, proxyType int) *ProxyConn {
 	c := &ProxyConn{
-		Connection: conn,
+		TCPConn: conn,
 		read:       0,
 		written:    0,
 		proxyType:  proxyType,
 	}
+
+	return c
+}
+
+// Reset is called is used by tcpserver to re-use the ProxyConn instance
+func (c *ProxyConn) Reset(netConn net.Conn) {
+	c.TCPConn.Reset(netConn)
 
 	c.Log = log.With().
 		Str("client_addr", c.GetClientAddr().String()).
@@ -51,7 +59,11 @@ func NewProxyConn(conn *tcpserver.Connection, proxyType int) *ProxyConn {
 		Str("external_addr", c.GetExternalAddr().String()).
 		Logger()
 
-	return c
+	c.externalAddr = nil
+	c.read = 0
+	c.written = 0
+	c.authenticated = false
+	c.authenticator = nil
 }
 
 func (c *ProxyConn) AddWritten(numBytes int64) {
@@ -74,12 +86,12 @@ func (c *ProxyConn) GetProxyType() int {
 	return c.proxyType
 }
 
-// Returns internal socks5 address at which this connection was accepted
+// GetInternalAddr returns internal socks5 address at which this connection was accepted
 func (c *ProxyConn) GetInternalAddr() *net.TCPAddr {
 	return c.GetServerAddr()
 }
 
-// Returns the external socks5 address that is used for outgoing connections
+// GetExternalAddr returns the external socks5 address that is used for outgoing connections
 func (c *ProxyConn) GetExternalAddr() *net.TCPAddr {
 	if c.externalAddr == nil {
 		ctx := c.GetServer().GetContext()
@@ -103,13 +115,13 @@ func (c *ProxyConn) GetExternalAddr() *net.TCPAddr {
 	return c.externalAddr
 }
 
-// Flags this connection as successfully authenticated with given authenticator name
-func (c *ProxyConn) SetSuccessfullyAuthenticated(authenticator authenticator.Authenticator) {
+// SetSuccessfullyAuthenticated flags this connection as successfully authenticated with given authenticator name
+func (c *ProxyConn) SetSuccessfullyAuthenticated(authenticator auth.Authenticator) {
 	c.authenticated = true
 	c.authenticator = authenticator
 }
 
-// Returns whether this connection has been successfully authenticated
-func (c *ProxyConn) IsSuccessfullyAuthenticated() (authenticated bool, authenticator authenticator.Authenticator) {
+// IsSuccessfullyAuthenticated checks whether this connection has been successfully authenticated
+func (c *ProxyConn) IsSuccessfullyAuthenticated() (authenticated bool, authenticator auth.Authenticator) {
 	return c.authenticated, c.authenticator
 }

@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-
-// checks whether an error is a timeout "OpError"
+// IsTimeoutError checks whether an error is a timeout "OpError"
 func IsTimeoutError(err error) bool {
 	opErr, ok := err.(*net.OpError)
 	return ok && opErr.Timeout()
@@ -22,7 +21,7 @@ func IsUnspecifiedIP(ip net.IP) bool {
 	return ip == nil || len(ip) == 0 || ip.IsUnspecified()
 }
 
-// Parses CIDR IP ranges
+// ParseCIDR parses CIDR IP ranges
 func ParseCIDR(cidr string) (*net.IPNet, error) {
 	if strings.Index(cidr, "/") == -1 {
 		ip := net.ParseIP(cidr)
@@ -44,6 +43,7 @@ func ParseCIDR(cidr string) (*net.IPNet, error) {
 	return net, nil
 }
 
+// ParseTCPAddr parses TCP addresses
 func ParseTCPAddr(tcpAddr string) (*net.TCPAddr, error) {
 	host, portStr, err := net.SplitHostPort(tcpAddr)
 	if err != nil {

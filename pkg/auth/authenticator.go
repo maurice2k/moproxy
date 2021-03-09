@@ -1,4 +1,4 @@
-package authenticator
+package auth
 
 import (
 	"net"
@@ -8,10 +8,10 @@ type Authenticator interface {
 	// Authenticate user with a subset of username, password, client and server address
 	Authenticate(username, password string, clientAddr, serverAddr *net.TCPAddr) bool
 
-	// Sets name of authenticator as defined in config
+	// SetName sets authenticator's name as defined in config
 	SetName(name string)
 
-	// Returns name of authenticator
+	// GetName returns authenticator's name
 	GetName() string
 }
 

@@ -1,5 +1,6 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package httpproxy
 
 import (
@@ -40,12 +41,12 @@ func handleConnectMethod(conn *httpClientConn) {
 	if err != nil {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
 			switch rcErr.Type {
-			case internal.ERR_NOT_ALLOWED_BY_RULESET:
+			case internal.ErrNotAllowedByRuleset:
 				conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
 				sendReply(conn, http.StatusForbidden, "", err)
-			case internal.ERR_NET_UNREACHABLE:
-			case internal.ERR_HOST_UNREACHABLE:
-			case internal.ERR_CONN_REFUSED:
+			case internal.ErrNetUnreachable:
+			case internal.ErrHostUnreachable:
+			case internal.ErrConnRefused:
 			default:
 				sendReply(conn, http.StatusBadGateway, "", err)
 			}
@@ -63,8 +64,8 @@ func handleConnectMethod(conn *httpClientConn) {
 	// Start proxying
 	var bytesWritten, bytesRead int64
 	errCh := make(chan error, 2)
-	go internal.ProxyTCP(conn.Connection.Conn.(*net.TCPConn), remoteTCPConn, &bytesRead, errCh)
-	go internal.ProxyTCP(remoteTCPConn, conn.Connection.Conn.(*net.TCPConn), &bytesWritten, errCh)
+	go internal.ProxyTCP(conn.TCPConn.Conn, remoteTCPConn, &bytesRead, errCh)
+	go internal.ProxyTCP(remoteTCPConn, conn.TCPConn.Conn, &bytesWritten, errCh)
 
 	// Wait
 	for i := 0; i < 2; i++ {

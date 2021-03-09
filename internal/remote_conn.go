@@ -5,6 +5,7 @@ import (
 	"moproxy/pkg/config"
 	"moproxy/pkg/misc"
 
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -15,10 +16,10 @@ import (
 
 // error type consts; these are numerically identical to SOCKS5 reply codes
 const (
-	ERR_NOT_ALLOWED_BY_RULESET = 0x02
-	ERR_NET_UNREACHABLE        = 0x03
-	ERR_HOST_UNREACHABLE       = 0x04
-	ERR_CONN_REFUSED           = 0x05
+	ErrNotAllowedByRuleset = 0x02
+	ErrNetUnreachable      = 0x03
+	ErrHostUnreachable     = 0x04
+	ErrConnRefused         = 0x05
 )
 
 type RemoteConnError struct {
@@ -51,7 +52,7 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 
 		ip, err := net.ResolveIPAddr(network, remoteAddr.DomainName)
 		if err != nil {
-			return nil, &RemoteConnError{msg: fmt.Sprintf("Unable to resolve %s address of '%s'", network, remoteAddr.DomainName), Type: ERR_HOST_UNREACHABLE, Err: err}
+			return nil, &RemoteConnError{msg: fmt.Sprintf("Unable to resolve %s address of '%s'", network, remoteAddr.DomainName), Type: ErrHostUnreachable, Err: err}
 		}
 		remoteAddr.IP = ip.IP
 	}
@@ -80,22 +81,22 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 	}
 
 	if !conf.IsProxyConnectionAllowed(clientConn, remoteAddr.IP) {
-		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset (proxy rules)"), Type: ERR_NOT_ALLOWED_BY_RULESET, Err: nil}
+		return nil, &RemoteConnError{msg: fmt.Sprintf("Client to remote not allowed by ruleset (proxy rules)"), Type: ErrNotAllowedByRuleset, Err: nil}
 	}
 
 	remoteConn, err := remoteDialer.Dial(network, remoteAddr.TCPAddr.String())
 	if err != nil {
 
-		errType := byte(ERR_HOST_UNREACHABLE)
+		errType := byte(ErrHostUnreachable)
 
 		if misc.IsTimeoutError(err) {
-			return nil, &RemoteConnError{msg: fmt.Sprintf("Timeout connecting to remote address '%s' with error: %s after %s", remoteAddr, err, time.Now().Sub(clientConn.GetStartTime())), Type: ERR_HOST_UNREACHABLE, Err: err}
+			return nil, &RemoteConnError{msg: fmt.Sprintf("Timeout connecting to remote address '%s' with error: %s after %s", remoteAddr, err, time.Now().Sub(clientConn.GetStartTime())), Type: ErrHostUnreachable, Err: err}
 
 		} else if strings.Contains(err.Error(), "network is unreachable") {
-			errType = ERR_NET_UNREACHABLE
+			errType = ErrNetUnreachable
 
 		} else if strings.Contains(err.Error(), "connection refused") {
-			errType = ERR_CONN_REFUSED
+			errType = ErrConnRefused
 
 		}
 
@@ -113,12 +114,17 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 	return remoteConn.(*net.TCPConn), nil
 }
 
-// Copies data from one connection to the other and sends errors to the given errChan
+// ProxyTCP copies data from one connection to the other and sends errors to the given errChan
 // src and dst should be of type *net.TCPConn (and not derived) so that io.Copy is able
 // to use zero-copy splice/sendfile optimizations where available
-func ProxyTCP(src *net.TCPConn, dst *net.TCPConn, copied *int64, errChan chan error) {
+func ProxyTCP(src net.Conn, dst net.Conn, copied *int64, errChan chan error) {
 	n, err := io.Copy(dst, src)
 	atomic.AddInt64(copied, n)
-	dst.CloseWrite()
+
+	switch v := dst.(type) {
+	case *net.TCPConn:
+	case *tls.Conn:
+		_ = v.CloseWrite()
+	}
 	errChan <- err
 }

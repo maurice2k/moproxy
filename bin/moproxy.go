@@ -1,27 +1,31 @@
-// Copyright 2019-2020 Moritz Fain
+// Copyright 2019-2021 Moritz Fain
 // Moritz Fain <moritz@fain.io>
+
 package main
 
 import (
 	"moproxy/pkg/config"
 	"moproxy/pkg/server"
 
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/facebookgo/pidfile"
 	"github.com/jessevdk/go-flags"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
-	"fmt"
-	"io"
-	"os"
-	"time"
 )
 
-var VERSION string = "dev"
+var VERSION = "dev"
+var BUILDDIR = ""
 
 var mainOpts struct {
-	Config  string `short:"c" long:"config" description:"Config file" value-name:"FILE" default:"../configs/moproxy.conf"`
-	LogFile string `short:"l" long:"logfile" description:"Log file" value-name:"FILE" default:"../logs/moproxy.log"`
+	Config  string `short:"c" long:"config" description:"Config file" value-name:"FILE" default:"./configs/moproxy.conf"`
+	LogFile string `short:"l" long:"logfile" description:"Log file" value-name:"FILE" default:"./logs/moproxy.log"`
 	Pidfile string `short:"p" long:"pidfile" description:"Pid file" value-name:"FILE"`
 	Verbose []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	Version bool   `long:"version" description:"Show moproxy version"`
@@ -50,15 +54,26 @@ func main() {
 
 	// Set up logging
 	consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+
+	buildDirPrefix := BUILDDIR
+	if buildDirPrefix == "" {
+		buildDirPrefix, _ = os.Getwd()
+	}
+
+	zerolog.CallerMarshalFunc = func(file string, line int) string {
+		file = strings.TrimPrefix(file, buildDirPrefix)
+		return file + ":" + strconv.Itoa(line)
+	}
+
 	log.Logger = log.Output(consoleWriter).With().Caller().Logger()
 
 	f, err := os.OpenFile(mainOpts.LogFile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		log.Warn().Msgf("Error opening log file: %s; logging only on console!", mainOpts.LogFile)
 	} else {
+		defer f.Close()
 		log.Logger = log.Output(io.MultiWriter(consoleWriter, f))
 	}
-	defer f.Close()
 
 	if len(mainOpts.Verbose) == 0 {
 		log.Logger = log.Logger.Level(zerolog.WarnLevel)
@@ -73,7 +88,11 @@ func main() {
 	if mainOpts.Pidfile != "" {
 		log.Debug().Msgf("Writing pid file: %s", mainOpts.Pidfile)
 		pidfile.SetPidfilePath(mainOpts.Pidfile)
-		pidfile.Write()
+		err = pidfile.Write()
+		if err != nil {
+			log.Error().Msgf("Error writing pid file: %s", err)
+			os.Exit(4)
+		}
 	}
 
 	// Serve
