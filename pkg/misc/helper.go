@@ -1,3 +1,6 @@
+// Copyright 2019-2021 Moritz Fain
+// Moritz Fain <moritz@fain.io>
+
 package misc
 
 import (

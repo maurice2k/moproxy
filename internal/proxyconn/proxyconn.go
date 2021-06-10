@@ -4,13 +4,13 @@
 package proxyconn
 
 import (
-	"github.com/rs/zerolog/log"
 	"moproxy/pkg/auth"
 
 	"net"
 
 	"github.com/maurice2k/tcpserver"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type CtxKey string
@@ -40,10 +40,10 @@ func (r RemoteAddr) String() string {
 
 func NewProxyConn(conn *tcpserver.TCPConn, proxyType int) *ProxyConn {
 	c := &ProxyConn{
-		TCPConn: conn,
-		read:       0,
-		written:    0,
-		proxyType:  proxyType,
+		TCPConn:   conn,
+		read:      0,
+		written:   0,
+		proxyType: proxyType,
 	}
 
 	return c

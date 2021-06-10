@@ -5,13 +5,16 @@ package main
 
 import (
 	"moproxy/pkg/config"
+	"moproxy/pkg/misc"
 	"moproxy/pkg/server"
 
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/facebookgo/pidfile"
@@ -53,7 +56,8 @@ func main() {
 	}
 
 	// Set up logging
-	consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	reloadChan := make(chan os.Signal)
+	signal.Notify(reloadChan, syscall.SIGHUP)
 
 	buildDirPrefix := BUILDDIR
 	if buildDirPrefix == "" {
@@ -61,20 +65,11 @@ func main() {
 	}
 
 	zerolog.CallerMarshalFunc = func(file string, line int) string {
-		file = strings.TrimPrefix(file, buildDirPrefix)
+		file = strings.TrimPrefix(strings.TrimPrefix(file, buildDirPrefix), "/")
 		return file + ":" + strconv.Itoa(line)
 	}
 
-	log.Logger = log.Output(consoleWriter).With().Caller().Logger()
-
-	f, err := os.OpenFile(mainOpts.LogFile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
-	if err != nil {
-		log.Warn().Msgf("Error opening log file: %s; logging only on console!", mainOpts.LogFile)
-	} else {
-		defer f.Close()
-		log.Logger = log.Output(io.MultiWriter(consoleWriter, f))
-	}
-
+	log.Logger = log.Logger.With().Caller().Logger()
 	if len(mainOpts.Verbose) == 0 {
 		log.Logger = log.Logger.Level(zerolog.WarnLevel)
 	} else if len(mainOpts.Verbose) == 1 {
@@ -83,6 +78,24 @@ func main() {
 		log.Logger = log.Logger.Level(zerolog.DebugLevel)
 	}
 
+	consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	log.Logger = log.Output(consoleWriter).With().Caller().Logger()
+
+	rw, err := misc.NewRotateWriter(mainOpts.LogFile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		log.Warn().Msgf("Error opening log file: %s; logging only on console!", mainOpts.LogFile)
+	} else {
+		defer rw.Close()
+		log.Logger = log.Output(io.MultiWriter(consoleWriter, rw))
+	}
+
+	go func() {
+		//  rotate writer in case of SIGHUP (for log rotate)
+		for {
+			<-reloadChan
+			rw.Rotate()
+		}
+	}()
 
 	// Write pid file (if given)
 	if mainOpts.Pidfile != "" {

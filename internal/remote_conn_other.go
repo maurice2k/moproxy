@@ -6,9 +6,9 @@
 package internal
 
 import (
-	"github.com/rs/zerolog"
-
 	"syscall"
+
+	"github.com/rs/zerolog"
 )
 
 type controlFunc func(network, address string, c syscall.RawConn) error

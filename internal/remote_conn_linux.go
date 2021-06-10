@@ -4,9 +4,9 @@
 package internal
 
 import (
-	"github.com/rs/zerolog"
-
 	"syscall"
+
+	"github.com/rs/zerolog"
 )
 
 const TCP_FASTOPEN_CONNECT = 0x1e
