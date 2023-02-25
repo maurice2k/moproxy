@@ -11,5 +11,5 @@ require (
 	github.com/maurice2k/orderedmap v0.0.0-20170721154308-9365be5e19a2
 	github.com/maurice2k/tcpserver v1.2.0
 	github.com/rs/zerolog v1.22.0
-	golang.org/x/sys v0.0.0-20210608053332-aa57babbf139 // indirect
+	golang.org/x/sys v0.1.0 // indirect
 )
