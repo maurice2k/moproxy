@@ -64,7 +64,7 @@ func main() {
 		buildDirPrefix, _ = os.Getwd()
 	}
 
-	zerolog.CallerMarshalFunc = func(file string, line int) string {
+	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 		file = strings.TrimPrefix(strings.TrimPrefix(file, buildDirPrefix), "/")
 		return file + ":" + strconv.Itoa(line)
 	}

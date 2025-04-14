@@ -26,7 +26,7 @@ Run moproxy using from repository's base directory
 
 ## Installation
 
-Installing moproxy is pretty simple using `make`. It only requires Go 1.13 (or better) to be installed on your system. 
+Installing moproxy is pretty simple using `make`. It only requires Go 1.23 (or better) to be installed on your system. 
 ```
 # make
 # make install
