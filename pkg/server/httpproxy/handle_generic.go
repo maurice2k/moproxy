@@ -22,7 +22,7 @@ func handleGenericHttpMethod(conn *httpClientConn) {
 	conn.request.Header.Del("Proxy-Authorization")
 
 	remoteAddr := &proxyconn.RemoteAddr{
-		TCPAddr:    new(net.TCPAddr),
+		TCPAddr: new(net.TCPAddr),
 	}
 
 	var host, portStr string
@@ -58,11 +58,16 @@ func handleGenericHttpMethod(conn *httpClientConn) {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
 			switch rcErr.Type {
 			case internal.ErrNotAllowedByRuleset:
+				conn.Log.Debug().Msgf("Not allowed to connect to remote: %s", err)
 				sendReply(conn, http.StatusForbidden, "", err)
 			case internal.ErrNetUnreachable:
+				fallthrough
 			case internal.ErrHostUnreachable:
+				fallthrough
 			case internal.ErrConnRefused:
+				fallthrough
 			default:
+				conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
 				sendReply(conn, http.StatusBadGateway, "", err)
 			}
 		} else {

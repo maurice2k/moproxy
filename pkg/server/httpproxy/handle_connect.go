@@ -14,7 +14,7 @@ import (
 
 func handleConnectMethod(conn *httpClientConn) {
 	remoteAddr := &proxyconn.RemoteAddr{
-		TCPAddr:    new(net.TCPAddr),
+		TCPAddr: new(net.TCPAddr),
 	}
 
 	host, portStr, err := net.SplitHostPort(conn.request.RequestURI)
@@ -42,12 +42,16 @@ func handleConnectMethod(conn *httpClientConn) {
 		if rcErr, ok := err.(*internal.RemoteConnError); ok {
 			switch rcErr.Type {
 			case internal.ErrNotAllowedByRuleset:
-				conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
+				conn.Log.Debug().Msgf("Not allowed to connect to remote: %s", err)
 				sendReply(conn, http.StatusForbidden, "", err)
 			case internal.ErrNetUnreachable:
+				fallthrough
 			case internal.ErrHostUnreachable:
+				fallthrough
 			case internal.ErrConnRefused:
+				fallthrough
 			default:
+				conn.Log.Debug().Msgf("Unable to connect to remote: %s", err)
 				sendReply(conn, http.StatusBadGateway, "", err)
 			}
 		} else {
@@ -80,4 +84,3 @@ func handleConnectMethod(conn *httpClientConn) {
 
 	return
 }
-

@@ -110,7 +110,6 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 
 	clientConn.Log.Debug().Msg("Connection established")
 
-
 	return remoteConn.(*net.TCPConn), nil
 }
 
@@ -123,6 +122,7 @@ func ProxyTCP(src net.Conn, dst net.Conn, copied *int64, errChan chan error) {
 
 	switch v := dst.(type) {
 	case *net.TCPConn:
+		_ = v.CloseWrite()
 	case *tls.Conn:
 		_ = v.CloseWrite()
 	}
