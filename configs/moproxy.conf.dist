@@ -149,11 +149,6 @@
             // Setting it to 0 will use the systems default.
             "connect": 30,
 
-            // The number of seconds an established connection can be idle.
-            // The default is 90 seconds.
-            // Set it to 0 for forever.
-            "idle": 90,
-
             // The number of seconds a client can spend negotiating with the
             // server for a socks session before the server will close the
             // connection to the client. The default is 30 seconds.

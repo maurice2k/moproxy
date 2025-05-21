@@ -26,8 +26,8 @@ const (
 
 // Command consts used in request
 const (
-	CmdConnect        = 0x01
-	CmdBind           = 0x02
+	CmdConnect = 0x01
+	CmdBind    = 0x02
 )
 
 // Address types used in requests and replies
@@ -519,11 +519,6 @@ func Connect(conn *socks5ClientConn) {
 
 	conn.request = request
 
-	if tcpTimeouts.Idle > 0 {
-		ts := time.Now().Add(time.Duration(tcpTimeouts.Idle))
-		_ = conn.SetDeadline(ts)
-	}
-
 	switch request.Command {
 	case CmdConnect:
 		handleConnectCommand(conn, request)
@@ -598,4 +593,3 @@ func (c *socks5ClientConn) Reset(netConn net.Conn) {
 	c.request = nil
 	c.lastReplyCode = 0
 }
-
