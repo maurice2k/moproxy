@@ -9,7 +9,6 @@ import (
 	"moproxy/pkg/misc"
 
 	"net"
-	"time"
 
 	"github.com/maurice2k/tcpserver"
 )
@@ -49,11 +48,7 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 
 	bindServer, _ := tcpserver.NewServer(bindAddr.String())
 	bindServer.SetMaxAcceptConnections(1)
-	bindServer.SetRequestHandler(func (incomingConn tcpserver.Connection) {
-		if tcpTimeouts.Idle > 0 {
-			ts := time.Now().Add(time.Duration(tcpTimeouts.Idle))
-			incomingConn.SetDeadline(ts)
-		}
+	bindServer.SetRequestHandler(func(incomingConn tcpserver.Connection) {
 
 		request.LocalAddr = incomingConn.GetClientAddr()
 		sendReply(conn, request, RepSuccess)

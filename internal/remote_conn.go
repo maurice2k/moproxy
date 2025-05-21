@@ -117,12 +117,7 @@ func ConnectToRemote(clientConn *proxyconn.ProxyConn, remoteAddr *proxyconn.Remo
 // src and dst should be of type *net.TCPConn (and not derived) so that io.Copy is able
 // to use zero-copy splice/sendfile optimizations where available
 func ProxyTCP(src net.Conn, dst net.Conn, copied *int64, errChan chan error) {
-	// Create a custom writer that refreshes the deadline on each write
-	writer := &deadlineWriter{
-		conn: dst,
-	}
-
-	n, err := io.Copy(writer, src)
+	n, err := io.Copy(dst, src)
 	atomic.AddInt64(copied, n)
 
 	switch v := dst.(type) {
@@ -132,23 +127,4 @@ func ProxyTCP(src net.Conn, dst net.Conn, copied *int64, errChan chan error) {
 		_ = v.CloseWrite()
 	}
 	errChan <- err
-}
-
-// deadlineWriter is a custom writer that refreshes the connection deadline on each write
-type deadlineWriter struct {
-	conn net.Conn
-}
-
-func (w *deadlineWriter) Write(p []byte) (n int, err error) {
-	// Get the current deadline
-	deadline, ok := w.conn.(interface{ Deadline() (time.Time, bool) })
-	if ok {
-		if t, ok := deadline.Deadline(); ok {
-			// If there's an existing deadline, refresh it
-			_ = w.conn.SetDeadline(t)
-		}
-	}
-
-	// Write the data
-	return w.conn.Write(p)
 }

@@ -71,7 +71,6 @@ type TimeoutConfig struct {
 type TimeoutTcpConfig struct {
 	Connect   Duration `json:"connect"`
 	KeepAlive Duration `json:"keepAlive"`
-	Idle      Duration `json:"idle"`
 	Negotiate Duration `json:"negotiate"`
 }
 
@@ -182,7 +181,6 @@ func LoadConfig(path string) (*Configuration, error) {
 			Tcp: TimeoutTcpConfig{
 				Connect:   Duration(30 * time.Second),
 				KeepAlive: Duration(30 * time.Second),
-				Idle:      Duration(90 * time.Second),
 				Negotiate: Duration(30 * time.Second),
 			},
 		},
@@ -487,6 +485,7 @@ func (ci *Configuration) GetStatsConfig() StatsConfig {
 }
 
 // GetListenMap returns the listening map
+//
 //goland:noinspection GoExportedFuncWithUnexportedType
 func (ci *Configuration) GetListenMap() listenMapType {
 	return ci.listenMap
