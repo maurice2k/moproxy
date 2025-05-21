@@ -38,7 +38,6 @@ func handleBindCommand(conn *socks5ClientConn, request *Request) {
 	}
 
 	conf := config.GetForServer(conn.GetServer())
-	tcpTimeouts := conf.GetTcpTimeouts()
 
 	if !conf.IsProxyConnectionAllowed(conn.ProxyConn, request.RemoteAddr.IP) {
 		log.Debug().Msgf("SOCKS 'BIND' not allowed by ruleset (proxy rules)")
