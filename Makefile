@@ -70,7 +70,7 @@ install:
 	$(info = Installing $(PACKAGE) to $(INSTALL_PATH))
 	$Q mkdir -p $(INSTALL_PATH)
 	$Q mkdir -p $(addprefix $(INSTALL_PATH)/, $(INSTALL_CREATE_EMPTY_FOLDERS))
-	$Q cp -ar --parents  $(INSTALL_COPY_FILES) $(INSTALL_PATH)/
+	$Q cp -arf --parents  $(INSTALL_COPY_FILES) $(INSTALL_PATH)/
 
 .PHONY: install-systemd
 install-systemd:
