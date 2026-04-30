@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// Set up logging
-	reloadChan := make(chan os.Signal)
+	reloadChan := make(chan os.Signal, 1)
 	signal.Notify(reloadChan, syscall.SIGHUP)
 
 	buildDirPrefix := BUILDDIR

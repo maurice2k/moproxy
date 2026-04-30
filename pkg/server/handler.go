@@ -182,8 +182,9 @@ func (serverSet *serverSet) stopServers() {
 	if serverSet.statsServer != nil {
 		log.Info().Str("instance", fmt.Sprintf("%p", serverSet.statsServer)).Msg("Shutting down stats web server gracefully...")
 		// shut down gracefully, but wait no longer than 1 seconds before halting
-		ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		serverSet.statsServer.Shutdown(ctx)
+		cancel()
 	}
 
 	serverSet.stopped = true
