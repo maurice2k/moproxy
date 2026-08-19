@@ -519,6 +519,8 @@ func Connect(conn *socks5ClientConn) {
 
 	conn.request = request
 
+	_ = conn.SetDeadline(time.Time{})
+
 	switch request.Command {
 	case CmdConnect:
 		handleConnectCommand(conn, request)

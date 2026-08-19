@@ -143,16 +143,16 @@
     },
     "timeout": {
         "tcp": {
-            // The number of seconds the server will wait for a connect
-            // initiated on behalf of the socks-client to complete. The
-            // default is 30 seconds.
-            // Setting it to 0 will use the systems default.
+            // How long moproxy waits for the outbound TCP handshake to the
+            // destination to complete. Default: 30 seconds.
+            // Setting it to 0 uses the system default.
             "connect": 30,
 
-            // The number of seconds a client can spend negotiating with the
-            // server for a socks session before the server will close the
-            // connection to the client. The default is 30 seconds.
-            // Set it to 0 for forever, though that is strongly discouraged.
+            // How long the client may take to finish the protocol handshake
+            // with moproxy (SOCKS5 auth + request, or HTTP request headers).
+            // Client-side only; does not apply to the remote connection or
+            // the subsequent data tunnel. Default: 30 seconds.
+            // Set it to 0 for no timeout (strongly discouraged).
             "negotiate": 30,
 
             // KeepAlive specifies the interval between keep-alive
