@@ -110,6 +110,7 @@ func Connect(conn *httpClientConn) {
 			sendReply(conn, http.StatusBadRequest, "", err)
 			break
 		}
+		_ = conn.SetDeadline(time.Time{})
 
 		connectRequest := conn.request.Method == "CONNECT"
 
